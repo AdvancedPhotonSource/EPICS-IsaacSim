@@ -14,6 +14,16 @@ records, so they work against the twin unmodified:
 | `%wa` | `wa` | where-all: every positioner and its position |
 | `%ct` | `ct` | count the detectors |
 
+The SPEC spellings `mv`, `mvr`, `umv` and `umvr` are bound to the same magics,
+because that is what muscle memory reaches for.
+
+That rebinding is a safety fix, not a convenience. IPython auto-aliases common
+shell commands, `mv` among them. A user typing `mv x 8` in a console shaped
+like a beamline gets `/bin/mv`, and if a file named `x` exists in the working
+directory it is silently renamed to `8` -- the command fails in the wrong
+domain, quietly, and no motor moves. The console removes that alias and binds
+the motor magic in its place.
+
 Inventing a bespoke CLI would mean staff learning a second vocabulary that
 works only against the simulation. That is the same mistake, one layer up,
 that section 5 of the design document warns about for scans: what you end up

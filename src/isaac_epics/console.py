@@ -41,7 +41,7 @@ BANNER = r"""
   ------------------------------------------------------------------------
   %mov x 10          move x to 10 (absolute)      %wa      where-all
   %movr x -2         move x by -2 (relative)      %ct      count detectors
-  %mv / %mvr         SPEC spellings of the above  (plain `mv` is the shell!)
+  mv / mvr / umv     SPEC spellings, rebound to the motors (not /bin/mv)
   x.position         read a value                 status() link + positions
   RE(bp.scan([], x, -10, 10, 11))                 run a scan
   ------------------------------------------------------------------------
