@@ -99,39 +99,88 @@ def build_namespace(config: AdapterConfig, timeout: float = 20.0) -> Dict[str, A
     return namespace
 
 
-def _live_callback() -> Any:
-    """Return the best live-feedback callback available.
+class _SafeCallback:
+    """Wrap a callback so a failure in live feedback cannot abort a run.
 
-    ``BestEffortCallback`` gives a live table *and* live plots, but it imports
-    matplotlib at module scope. Requiring a plotting stack to move a motor
-    from a text console is a poor trade on a headless beamline host, so fall
-    back to ``LiveTable``, which needs nothing extra and still prints every
-    point as it is collected.
+    Live tables and plots are diagnostics. They must never be able to halt a
+    motor move -- which is not hypothetical: on Sentosa matplotlib imports
+    but has no ``get_backend``, so ``BestEffortCallback`` raised
+    ``AttributeError`` partway through the plan and the RunEngine aborted a
+    ``%mov``. A broken plotting library stopping a stage mid-travel is a bad
+    trade in any control system, and a worse one in a twin that is supposed
+    to behave like a beamline.
+
+    The first failure is reported, the callback is then disabled, and the run
+    continues. Silence would be worse than noise here, so the warning is
+    printed rather than swallowed.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self._failed = False
+
+    def __call__(self, name: str, doc: Dict[str, Any]) -> None:
+        if self._failed:
+            return
+        try:
+            self._inner(name, doc)
+        except Exception as exc:  # noqa: BLE001 - diagnostics must not halt a plan
+            self._failed = True
+            print(f"\n[live feedback disabled: {type(exc).__name__}: {exc}]\n"
+                  f"[the plan continues; this affects display only]")
+
+
+def _plotting_is_usable() -> bool:
+    """Whether matplotlib is healthy enough for BestEffortCallback.
+
+    Importability is not enough. A partial install can satisfy ``import
+    matplotlib`` and still lack ``get_backend``, which is what
+    ``BestEffortCallback`` reaches for.
     """
     try:
-        from bluesky.callbacks.best_effort import BestEffortCallback
-        return BestEffortCallback()
-    except ImportError:
-        from bluesky.callbacks.core import LiveTable
+        import matplotlib
+        matplotlib.get_backend()
+    except Exception:  # noqa: BLE001
+        return False
+    return True
 
-        class _AutoTable:
-            """LiveTable that discovers its columns from the run's hints."""
 
-            def __init__(self) -> None:
-                self._table: Optional[Any] = None
+def _live_callback() -> Any:
+    """Return the best live-feedback callback that actually works here.
 
-            def __call__(self, name: str, doc: Dict[str, Any]) -> None:
-                if name == "descriptor":
-                    fields = list(doc.get("data_keys", {}))
-                    self._table = LiveTable(fields)
-                    self._table("start", getattr(self, "_start", {}) or {})
-                if name == "start":
-                    self._start = doc
-                    return
-                if self._table is not None:
-                    self._table(name, doc)
+    ``BestEffortCallback`` gives a live table *and* live plots, but it needs
+    a working matplotlib. Requiring a plotting stack to move a motor from a
+    text console is a poor trade on a headless beamline host, so fall back to
+    ``LiveTable``, which needs nothing extra and still prints every point as
+    it is collected.
+    """
+    if _plotting_is_usable():
+        try:
+            from bluesky.callbacks.best_effort import BestEffortCallback
+            return _SafeCallback(BestEffortCallback())
+        except Exception:  # noqa: BLE001
+            pass
 
-        return _AutoTable()
+    from bluesky.callbacks.core import LiveTable
+
+    class _AutoTable:
+        """LiveTable that discovers its columns from the run's descriptor."""
+
+        def __init__(self) -> None:
+            self._table: Optional[Any] = None
+            self._start: Dict[str, Any] = {}
+
+        def __call__(self, name: str, doc: Dict[str, Any]) -> None:
+            if name == "start":
+                self._start = doc
+                return
+            if name == "descriptor":
+                self._table = LiveTable(list(doc.get("data_keys", {})))
+                self._table("start", self._start)
+            if self._table is not None:
+                self._table(name, doc)
+
+    return _SafeCallback(_AutoTable())
 
 
 def build_parser() -> argparse.ArgumentParser:

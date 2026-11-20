@@ -295,3 +295,36 @@ def test_console_run_engine_is_given_an_explicit_loop():
         assert "loop" in kwargs, (
             "RunEngine must be constructed with an explicit loop= argument"
         )
+
+
+def test_live_feedback_cannot_abort_a_plan():
+    """A broken visualization callback must not halt a move.
+
+    Regression: on Sentosa matplotlib imports but lacks get_backend, so
+    BestEffortCallback raised AttributeError mid-plan and the RunEngine
+    aborted a %mov. Diagnostics are not allowed to stop a motor.
+    """
+    from isaac_epics.console import _SafeCallback
+
+    class Exploding:
+        calls = 0
+
+        def __call__(self, name, doc):
+            Exploding.calls += 1
+            raise AttributeError("module 'matplotlib' has no attribute 'get_backend'")
+
+    cb = _SafeCallback(Exploding())
+    cb("start", {})        # must not raise
+    cb("event", {})        # must not raise
+    cb("stop", {})
+    assert Exploding.calls == 1, "callback must be disabled after its first failure"
+
+
+def test_live_feedback_passes_documents_through_when_healthy():
+    from isaac_epics.console import _SafeCallback
+
+    seen = []
+    cb = _SafeCallback(lambda name, doc: seen.append(name))
+    cb("start", {})
+    cb("event", {})
+    assert seen == ["start", "event"]
