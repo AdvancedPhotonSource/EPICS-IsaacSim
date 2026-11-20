@@ -132,10 +132,29 @@ magic numbers. An unknown key is an error, not a silent no-op — a typo in
 
 ## Running
 
+Probe Isaac Sim's API surface before wiring EPICS into it. The standalone
+script's import paths and articulation calls are unverified across Isaac Sim
+releases, and a mismatch there surfaces as a stack trace from inside Kit rather
+than as a clear error:
+
+```bash
+./python.sh examples/isaacsim_probe.py --usd stage.usd --prim /World/Stage
+```
+
+The probe touches no sockets and imports nothing from this project. It reports
+which spelling of each API works on your build, and lists the articulation's
+actual joint names so they can be checked against the `joint` fields in the
+adapter config. Only once it is clean:
+
 ```bash
 isaac-epics-ioc -c beamline.json
 ./python.sh examples/isaacsim_standalone.py --usd stage.usd --prim /World/Stage
 ```
+
+**Stop `fake_sim.py` before connecting Isaac Sim.** Two clients posting to
+`/tick` for the same joints would interleave their positions, and the adapter
+would see a readback that jumps between two sources. The architecture assumes
+exactly one client (§7.2); nothing enforces it at the socket.
 
 Checks that are worth doing in order, because each rules out a different layer:
 

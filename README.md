@@ -26,7 +26,8 @@ definitions; the twin stands in for the hardware, not for the experiment.
 | ophyd `EpicsMotor` | **verified** against ophyd 1.11.2 — all 19 bound fields served |
 | Bluesky `scan` | **verified** — 6-point scan steps correctly, all points inside deadband |
 | Mirror mode (direction A) | implemented, tested without a live beamline |
-| Isaac Sim integration script | written, **not yet run against a real Isaac Sim** |
+| Adapter on APS hardware | **verified on Sentosa** — 152 tests + live move/unit checks on stock Python 3.9 |
+| Isaac Sim integration script | written, **not yet run against a real Isaac Sim**. Probe it first with `examples/isaacsim_probe.py`. |
 
 The last row is the one that matters: everything else here has been executed.
 `examples/isaacsim_standalone.py` has not, because this was developed on a machine
