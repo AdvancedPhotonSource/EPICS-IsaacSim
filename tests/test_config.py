@@ -267,3 +267,31 @@ def test_console_aliases_are_usable_identifiers():
 def test_bad_alias_rejected():
     with pytest.raises(ConfigError, match="identifier"):
         AxisConfig(motor="m1", joint="j", alias="not a name")
+
+
+# -- console RunEngine construction --------------------------------------
+
+def test_console_run_engine_is_given_an_explicit_loop():
+    """Regression: the console's RunEngine must own a loop.
+
+    Under IPython the main thread can be left with no current event loop,
+    and on Python 3.9 ``asyncio.Event()`` resolves its loop through
+    ``get_event_loop()``. A RunEngine built without an explicit loop then
+    raises "There is no current event loop" on the first ``%mov`` -- at use,
+    not at construction. Bluesky's default ``BlueskyMagics.RE`` passes a
+    fresh loop for this reason; ours must too.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path("src/isaac_epics/console.py").read_text()
+    tree = ast.parse(source)
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "RunEngine":
+            found.append({kw.arg for kw in node.keywords})
+    assert found, "console.py no longer constructs a RunEngine"
+    for kwargs in found:
+        assert "loop" in kwargs, (
+            "RunEngine must be constructed with an explicit loop= argument"
+        )

@@ -29,6 +29,7 @@ Launch it with ``isaac-epics-console``.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sys
 from typing import Any, Dict, List, Optional
@@ -60,7 +61,15 @@ def build_namespace(config: AdapterConfig, timeout: float = 20.0) -> Dict[str, A
 
     stage = connect_stage(config, timeout=timeout)
 
-    engine = RunEngine({})
+    # The loop must be explicit. Under IPython the main thread can be left
+    # with no current event loop between cells, and on Python 3.9
+    # asyncio.Event() resolves its loop through get_event_loop(), which then
+    # raises "There is no current event loop in thread 'MainThread'" from
+    # inside RunEngine._clear_call_cache -- i.e. on the first %mov, not at
+    # construction, so it looks like a magics bug rather than a setup one.
+    # Bluesky's own default BlueskyMagics.RE passes a fresh loop for exactly
+    # this reason; replacing it with one that does not regresses that fix.
+    engine = RunEngine({}, loop=asyncio.new_event_loop())
     engine.subscribe(_live_callback())
 
     def status() -> None:
