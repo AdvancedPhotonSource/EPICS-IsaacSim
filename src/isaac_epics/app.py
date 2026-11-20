@@ -50,6 +50,9 @@ class Adapter:
         self._tick_period = 1.0 / config.update_rate
         self._ticks = 0
         self._last_warn = 0.0
+        self._window_ticks = 0
+        self._window_start = 0.0
+        self._worst_stall = 0.0
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -77,19 +80,38 @@ class Adapter:
             except Exception:  # noqa: BLE001 - a bad tick must not kill the IOC
                 logger.exception("tick failed")
             self._ticks += 1
+            self._window_ticks += 1
             delay = next_at - loop.time()
             if delay < -self._tick_period:
                 # We are not keeping up. Resynchronise rather than spiral, and
                 # say so -- a silently slow control loop is a lie about rate.
+                #
+                # Report the achieved rate alongside the stall, because the
+                # two mean different things and the operator has to act on
+                # them differently. An occasional stall under a busy host --
+                # Isaac Sim rendering and encoding a video stream will do it --
+                # leaves the average rate intact and costs only a coarser
+                # setpoint for one interval. A sustained drop in the achieved
+                # rate means the loop genuinely cannot keep up. Reporting only
+                # the stall makes the first look like the second.
                 now = time.monotonic()
+                self._worst_stall = max(self._worst_stall, -delay)
                 if now - self._last_warn > 10.0:
+                    window = now - self._window_start if self._window_start else 0.0
+                    achieved = (self._window_ticks / window) if window > 0 else float("nan")
                     logger.warning(
-                        "tick loop is behind by %.3fs; motor updates are slower than the "
-                        "configured %.1f Hz", -delay, self.config.update_rate,
+                        "tick loop stalled up to %.3fs; achieved %.1f Hz over the last "
+                        "%.0fs against a configured %.1f Hz",
+                        self._worst_stall, achieved, window, self.config.update_rate,
                     )
                     self._last_warn = now
+                    self._window_start = now
+                    self._window_ticks = 0
+                    self._worst_stall = 0.0
                 next_at = loop.time()
                 delay = 0.0
+            elif self._window_start == 0.0:
+                self._window_start = time.monotonic()
             await asyncio.sleep(max(0.0, delay))
 
     async def run(self) -> None:
