@@ -56,6 +56,7 @@ def build_namespace(config: AdapterConfig, timeout: float = 20.0) -> Dict[str, A
     import bluesky.plan_stubs as bps
     import bluesky.plans as bp
     from bluesky import RunEngine
+    from bluesky.utils import DuringTask
 
     from .devices import axis_table, connect_stage
 
@@ -69,7 +70,20 @@ def build_namespace(config: AdapterConfig, timeout: float = 20.0) -> Dict[str, A
     # construction, so it looks like a magics bug rather than a setup one.
     # Bluesky's own default BlueskyMagics.RE passes a fresh loop for exactly
     # this reason; replacing it with one that does not regresses that fix.
-    engine = RunEngine({}, loop=asyncio.new_event_loop())
+    # during_task=DuringTask() rather than bluesky's default.
+    #
+    # DefaultDuringTask exists to keep a Qt GUI event loop spinning while a
+    # plan runs. It decides whether to do so by checking whether "matplotlib"
+    # is in sys.modules -- and IPython puts a partial matplotlib entry there
+    # even when the real package is not installed. bluesky then takes the
+    # "matplotlib + Qt" branch and calls matplotlib.get_backend() on a stub,
+    # raising AttributeError from inside the RunEngine. The plan is halted,
+    # so on Sentosa the first %mov aborted mid-move with PlanHalt.
+    #
+    # A text console has no Qt loop to keep alive, so the plain DuringTask --
+    # which simply waits on the event -- is both correct here and immune to
+    # whatever the ambient plotting stack happens to be.
+    engine = RunEngine({}, loop=asyncio.new_event_loop(), during_task=DuringTask())
     engine.subscribe(_live_callback())
 
     def status() -> None:
