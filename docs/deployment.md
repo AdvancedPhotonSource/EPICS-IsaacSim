@@ -157,6 +157,21 @@ podman run -d --name epics-bridge --network=host \
     --url http://127.0.0.1:8227
 ```
 
+The cache directories must be writable **by the container's user, not
+yours**. The image runs as `isaac-sim` (uid 1234), while rootless podman maps
+your host uid to container *root* -- so a directory you create is root-owned
+and mode 755 inside the container, and Kit dies with
+`PermissionError: /isaac-sim/.cache/warp`. Fix the ownership inside the user
+namespace before the first run:
+
+```bash
+podman unshare chown -R 1234:1234 /local/$USER/isaac-cache
+```
+
+This is the opposite of the read-only mounts, which need no such treatment:
+git's 644/755 leaves them world-readable, so uid 1234 can read them through
+the "other" bits. Only the writable mounts need the chown.
+
 Select the GPU **by UUID, not index** -- indices are assigned by enumeration
 order and shift across reboots, which on a shared host can silently move the
 job onto a card someone else is using. Check `nvidia-smi` for an idle card

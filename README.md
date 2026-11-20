@@ -26,13 +26,31 @@ definitions; the twin stands in for the hardware, not for the experiment.
 | ophyd `EpicsMotor` | **verified** against ophyd 1.11.2 — all 19 bound fields served |
 | Bluesky `scan` | **verified** — 6-point scan steps correctly, all points inside deadband |
 | Mirror mode (direction A) | implemented, tested without a live beamline |
-| Adapter on APS hardware | **verified on Sentosa** — 152 tests + live move/unit checks on stock Python 3.9 |
-| Isaac Sim integration script | written, **not yet run against a real Isaac Sim**. Probe it first with `examples/isaacsim_probe.py`. |
+| Adapter on APS hardware | **verified on Sentosa** — full suite + live move/unit checks on stock Python 3.9 |
+| Isaac Sim integration script | **verified on Sentosa** against Isaac Sim 6.2.0 — drives the real 4-DOF articulation |
+| Bluesky scan → real articulation | **verified on Sentosa** — 5-point scan, worst error 17 µm |
 
-The last row is the one that matters: everything else here has been executed.
-`examples/isaacsim_standalone.py` has not, because this was developed on a machine
-with no Isaac Sim and no GPU. Its adapter-facing half is covered by tests; its
-Isaac Sim API usage is not.
+Every row has been executed. The full chain runs on Sentosa: a stock `bp.scan`
+drives a stock ophyd `EpicsMotor` over Channel Access, into the adapter's motor
+record, over the HTTP tick, into Isaac Sim's PhysX articulation, and the measured
+joint position comes back the same way. No twin-aware code appears anywhere in
+the scan.
+
+Measured on the live articulation (Isaac Sim 6.2.0, physics on CPU at 1/240 s):
+
+| Axis | Settled error | `.RDBD` | Margin over the floor |
+|---|---|---|---|
+| `x_axis` | 0.003 mm | 0.02 mm | 6.7× |
+| `y_axis` | 0.004 mm | 0.02 mm | 5× |
+| `z_axis` | 0.144 mm | 0.25 mm | 1.7× |
+| `theta_axis` | 0.003° | 0.05° | ~19× |
+
+`z_axis` is the loose one for a physical reason: it is the only axis carrying a
+gravity load into a finite-stiffness force drive (about 44 N against 300000 N/m),
+so it rests ~0.15 mm below target however long it is given. The measurement
+agrees with that prediction to within a few percent — which is the useful part,
+because it means these drives behave the way the model says and the deadbands can
+be derived rather than guessed.
 
 ## Quick start — no EPICS, no GPU, no Isaac Sim
 
