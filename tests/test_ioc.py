@@ -113,3 +113,39 @@ def test_prefix_is_applied_everywhere():
                         axes=[AxisConfig(motor="mx", joint="jx")])
     pvdb = build_ioc(cfg, SharedPlant()).pvdb
     assert all(name.startswith("SIM:OTHER:") for name in pvdb)
+
+
+async def test_every_float_field_has_display_precision(ioc):
+    """A readback rendered as an integer hides the measurement.
+
+    Regression: only .VAL carried precision, because it was declared on the
+    pvproperty. Everything else defaulted to 0, so a Bluesky LiveTable
+    showed a readback of 19.991924986 as "20" next to a setpoint column of
+    "-20.0000". The commanded-vs-measured difference is the quantity this
+    project exists to expose; rounding it away by default hides the
+    deadband, the gravity sag, and whether a scan reached what it recorded.
+    """
+    group = ioc.motor_group("m1")
+    await group._publish_precision()
+    for name in ("rbv", "rrbv", "dval", "hlm", "llm", "velo", "rdbd", "sim_target"):
+        prop = getattr(group, name)
+        assert prop.precision == group.cfg.precision, (
+            f".{name} has precision {prop.precision}, expected {group.cfg.precision}"
+        )
+
+
+async def test_rotary_axis_gets_its_own_precision(ioc):
+    """Precision is per-axis, not global: theta is configured coarser."""
+    theta = ioc.motor_group("m4")
+    await theta._publish_precision()
+    assert theta.rbv.precision == theta.cfg.precision == 3
+
+
+async def test_value_channels_advertise_engineering_units(ioc):
+    """Clients read units from channel metadata, not from .EGU."""
+    for motor, egu in (("m1", "mm"), ("m4", "deg")):
+        group = ioc.motor_group(motor)
+        await group._publish_units()
+        assert group.rbv.units in (egu, egu.encode()), (
+            f"{motor}.RBV units = {group.rbv.units!r}, expected {egu!r}"
+        )

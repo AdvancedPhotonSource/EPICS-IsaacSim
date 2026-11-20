@@ -76,6 +76,19 @@ class MotorPVGroup(PVGroup):
         await self._publish_lvio(0)
         return float(value)
 
+    async def _publish_units(self) -> None:
+        """Advertise engineering units on the value channels.
+
+        Clients read units from channel metadata, not from ``.EGU``, so
+        without this a plot axis or a progress bar is labelled with nothing
+        -- and a millimetre is indistinguishable from a degree.
+        """
+        for prop in (self.val, self.rbv, self.rrbv, self.dval):
+            try:
+                await prop.write_metadata(units=self.cfg.egu)
+            except Exception:  # noqa: BLE001
+                logger.debug("could not set units on %r", prop, exc_info=True)
+
     async def _publish_limits(self) -> None:
         """Mirror .HLM/.LLM onto the .VAL channel's control limits.
 
@@ -97,6 +110,40 @@ class MotorPVGroup(PVGroup):
             )
         except Exception:  # noqa: BLE001
             logger.debug("could not publish control limits", exc_info=True)
+
+    async def _publish_precision(self) -> None:
+        """Set display precision on every float field.
+
+        Only ``.VAL`` carried precision, because it was declared on the
+        pvproperty; every other double defaulted to 0. Clients honour that
+        metadata, so a readback of 19.991924986 was rendered as ``20`` in a
+        Bluesky LiveTable while the setpoint column showed four decimals.
+
+        That is worse than untidy. The difference between commanded and
+        measured is the quantity this whole project exists to expose -- it
+        is how you see the deadband, the gravity sag, and whether a scan
+        reached the position it recorded. Rounding it away in the default
+        display hides the evidence.
+
+        Engineering-unit fields get the axis's configured precision; times
+        get three decimals, which is finer than any value they hold here.
+        """
+        egu_fields = (
+            self.rbv, self.rrbv, self.dval, self.hlm, self.llm,
+            self.dhlm, self.dllm, self.velo, self.vbas, self.vmax,
+            self.bvel, self.rdbd, self.bdst, self.mres, self.twv,
+            self.sim_target,
+        )
+        for prop in egu_fields:
+            try:
+                await prop.write_metadata(precision=self.cfg.precision)
+            except Exception:  # noqa: BLE001 - metadata must not break startup
+                logger.debug("could not set precision on %r", prop, exc_info=True)
+        for prop in (self.accl, self.bacc, self.dly):
+            try:
+                await prop.write_metadata(precision=3)
+            except Exception:  # noqa: BLE001
+                logger.debug("could not set precision on %r", prop, exc_info=True)
 
     async def _publish_lvio(self, value: int) -> None:
         try:
@@ -386,6 +433,8 @@ class MotorPVGroup(PVGroup):
         await self.sim_joint.write(self.cfg.joint)
         await self.dir_pv.write(0 if self.cfg.direction == "Pos" else 1)
         await self._publish_limits()
+        await self._publish_precision()
+        await self._publish_units()
 
     # -- publication -------------------------------------------------------
 
