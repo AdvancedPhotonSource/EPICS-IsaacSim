@@ -1,0 +1,29 @@
+{
+  "comment": "Example adapter configuration: the 4-DOF prototype stage.",
+  "prefix": "SIM:TWIN:",
+  "bind": {"http_host": "127.0.0.1", "http_port": 8227, "ca_interface": "127.0.0.1"},
+  "stale_timeout": 1.0,
+  "update_rate": 20.0,
+  "axes": [
+    {"motor": "m1", "joint": "x_axis", "desc": "Sample X",
+     "units": {"sim": "m", "egu": "mm"},
+     "low_limit": -50.0, "high_limit": 50.0,
+     "velocity": 10.0, "max_velocity": 50.0, "accel_time": 0.2,
+     "retry_deadband": 0.001, "precision": 4},
+    {"motor": "m2", "joint": "y_axis", "desc": "Sample Y",
+     "units": {"sim": "m", "egu": "mm"},
+     "low_limit": -50.0, "high_limit": 50.0,
+     "velocity": 10.0, "max_velocity": 50.0, "accel_time": 0.2,
+     "retry_deadband": 0.001, "precision": 4},
+    {"motor": "m3", "joint": "z_axis", "desc": "Sample Z",
+     "units": {"sim": "m", "egu": "mm"},
+     "low_limit": -25.0, "high_limit": 25.0,
+     "velocity": 5.0, "max_velocity": 25.0, "accel_time": 0.2,
+     "retry_deadband": 0.001, "precision": 4},
+    {"motor": "m4", "joint": "theta_axis", "desc": "Sample Theta",
+     "units": {"sim": "rad", "egu": "deg"},
+     "low_limit": -180.0, "high_limit": 180.0,
+     "velocity": 30.0, "max_velocity": 90.0, "accel_time": 0.3,
+     "retry_deadband": 0.01, "precision": 3}
+  ]
+}

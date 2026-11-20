@@ -1,0 +1,9 @@
+{
+  "comment": "Direction A: mirror real beamline readbacks into the twin. Read-only.",
+  "mirror": [
+    {"pv": "SIM:REAL:m1.RBV", "joint": "x_axis",     "units": {"sim": "m",   "egu": "mm"}},
+    {"pv": "SIM:REAL:m2.RBV", "joint": "y_axis",     "units": {"sim": "m",   "egu": "mm"}},
+    {"pv": "SIM:REAL:m3.RBV", "joint": "z_axis",     "units": {"sim": "m",   "egu": "mm"}},
+    {"pv": "SIM:REAL:m4.RBV", "joint": "theta_axis", "units": {"sim": "rad", "egu": "deg"}}
+  ]
+}

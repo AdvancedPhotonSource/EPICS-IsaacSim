@@ -1,0 +1,25 @@
+# Snyk policy file.
+version: v1.25.0
+
+ignore:
+  'python/PT':
+    - 'src/isaac_epics/cli.py':
+        reason: >-
+          Accepted, not suppressed carelessly. The flagged dataflow is the
+          operator's own `--config FILE` argument reaching open(). That is the
+          entire purpose of the flag: an operator naming a configuration file
+          on their own command line is not crossing a trust boundary, because
+          the process already runs with their privileges and they could read
+          the file directly. There is no remote or untrusted source feeding
+          this path -- the adapter's only network input is the JSON tick
+          endpoint, which is schema-validated and never touches the
+          filesystem. The path is resolved, existence- and type-checked, and
+          size-capped in config.read_config_text(); the taint pattern
+          nevertheless remains, as it must while the feature exists.
+        created: 2026-11-20T00:00:00.000Z
+    - 'src/isaac_epics/mirror.py':
+        reason: >-
+          Same finding and same reasoning as src/isaac_epics/cli.py: the
+          mirror mode's `--config FILE` argument reaching open() through the
+          shared, validating loader in config.read_config_text().
+        created: 2026-11-20T00:00:00.000Z

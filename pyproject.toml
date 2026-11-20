@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isaac-epics"
+version = "0.1.0"
+description = "EPICS / Bluesky adapter layer for NVIDIA Isaac Sim digital twins"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "Advanced Photon Source" }]
+dependencies = [
+    "caproto>=1.1",
+]
+
+[project.optional-dependencies]
+mirror = ["caproto>=1.1"]
+bluesky = ["ophyd>=1.9", "bluesky>=1.13"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.5"]
+
+[project.scripts]
+isaac-epics-ioc = "isaac_epics.cli:main"
+isaac-epics-mirror = "isaac_epics.mirror:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests", "src"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",
+    # The adapter targets Python 3.9 (the stock interpreter on APS RHEL 9.8
+    # hosts, which is what lets it run there without a new Python). Explicit
+    # `typing.Dict` / `typing.Optional` imports are kept deliberately rather
+    # than relying on `from __future__ import annotations` to make PEP 585 and
+    # PEP 604 syntax safe at runtime on that version.
+    "UP006",
+    "UP035",
+    "UP037",
+    "UP045",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# isaacsim_client/ is copied into Isaac Sim's embedded interpreter as a single
+# standalone file and must stay maximally portable. Explicit `object` bases and
+# percent-formatting are intentional conservatism, not oversights.
+"isaacsim_client/*" = ["UP004", "UP031"]
+# Isaac Sim requires SimulationApp to be constructed before any other import,
+# so module-level imports cannot all sit at the top.
+"examples/isaacsim_standalone.py" = ["E402"]
+"examples/fake_sim.py" = ["E402"]
+"examples/bluesky_scan.py" = ["E402"]
+"tests/*" = ["E402"]
