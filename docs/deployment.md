@@ -130,7 +130,44 @@ magic numbers. An unknown key is an error, not a silent no-op — a typo in
 | `stale_timeout` | Several times the client's exchange period. Isaac Sim's frame rate is not guaranteed; a value near the frame period will flap. |
 | `update_rate` | 20 Hz is ample for motor readback. Raising it does not improve fidelity — the simulator's own rate bounds that. |
 
-## Running
+## Running Isaac Sim with the bridge
+
+Mount a persistent shader cache. Without one, Kit recompiles shaders lazily on
+first render and the main thread stalls for a minute or more partway through
+the first run -- observed on Sentosa as an 80-second freeze with the container
+at 900% CPU and the GPU at 0%. The link correctly goes INVALID for the
+duration and recovers on its own, but there is no reason to pay it twice.
+
+```bash
+mkdir -p /local/$USER/isaac-cache/{kit,ov,glcache,computecache,warp}
+
+podman run -d --name epics-bridge --network=host \
+  --device nvidia.com/gpu=<UUID of an idle RTX card> \
+  -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y \
+  -v $HOME/EPICS-IsaacSim:/workspace/epics:ro \
+  -v $HOME/digital-twin/prototype:/workspace/twin:ro \
+  -v /local/$USER/isaac-cache/kit:/isaac-sim/kit/cache:rw \
+  -v /local/$USER/isaac-cache/glcache:/isaac-sim/.cache/nvidia/GLCache:rw \
+  -v /local/$USER/isaac-cache/computecache:/isaac-sim/.nv/ComputeCache:rw \
+  -v /local/$USER/isaac-cache/warp:/isaac-sim/.cache/warp:rw \
+  --entrypoint /isaac-sim/python.sh \
+  nvcr.io/nvidia/isaac-sim:6.2.0 \
+  /workspace/epics/examples/isaacsim_standalone.py \
+    --mechanism-root /workspace/twin \
+    --url http://127.0.0.1:8227
+```
+
+Select the GPU **by UUID, not index** -- indices are assigned by enumeration
+order and shift across reboots, which on a shared host can silently move the
+job onto a card someone else is using. Check `nvidia-smi` for an idle card
+first; the inventory table in `digital-twin/docs/hosts/sentosa.md` is a
+snapshot and goes stale.
+
+The image's entrypoint is `runheadless.sh` and it **swallows appended
+commands** -- a command added to `podman run` becomes an argument to that
+script rather than replacing it. `--entrypoint` is mandatory.
+
+## Running the adapter
 
 Probe Isaac Sim's API surface before wiring EPICS into it. The standalone
 script's import paths and articulation calls are unverified across Isaac Sim

@@ -375,13 +375,31 @@ def default_config() -> AdapterConfig:
     retries, which reads like a hardware fault rather than the configuration
     error it is.
 
-    ``retry_deadband`` on ``z_axis`` is deliberately the loosest. It is the
-    only axis carrying a gravity load, and its drive is a force drive with
-    finite stiffness (300000 N/m against roughly 44 N), so it settles a
-    predictable distance below its target -- of order 0.15 mm. A deadband
-    tighter than that steady-state error would make every z move report
-    ``.MISS`` forever. These values are starting points to be replaced by
-    measurements from the running articulation.
+    ``retry_deadband`` is set per axis from the steady-state error
+    **measured on the running articulation** (Sentosa, Isaac Sim 6.2.0,
+    physics on CPU at 1/240 s), not from a rule of thumb:
+
+    ==========  ====================  ==============  =======
+    Axis        Measured settled err  ``retry_deadband``  Margin
+    ==========  ====================  ==============  =======
+    x_axis      0.003 mm              0.02 mm         ~6x
+    y_axis      0.004 mm              0.02 mm         ~5x
+    z_axis      0.144 mm              0.25 mm         ~1.7x
+    theta_axis  0.010 deg             0.05 deg        ~5x
+    ==========  ====================  ==============  =======
+
+    ``z_axis`` is loosest because it is the only axis carrying a gravity load
+    into a finite-stiffness force drive: roughly 44 N against 300000 N/m, so
+    it rests about 0.15 mm below its target no matter how long it is given.
+    The measurement agrees with that prediction to within a few percent. A
+    deadband tighter than that floor would make every z move report ``.MISS``
+    forever, while the joint sat exactly where the physics says it belongs.
+
+    Note what the deadband actually buys. ``.DMOV`` rises on *entering* the
+    deadband, not on reaching the floor, so ``.RDBD`` -- not the drive -- is
+    what bounds how precisely a scan knows where the axis is. Widening it
+    past what the floor requires trades away position certainty for nothing.
+    These are the tightest values the measured floors support.
     """
     return AdapterConfig(
         prefix=os.environ.get("ISAAC_EPICS_PREFIX", "SIM:TWIN:"),
@@ -390,30 +408,30 @@ def default_config() -> AdapterConfig:
                 motor="m1", joint="x_axis", desc="Sample X", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
-                accel_time=0.2, retry_deadband=0.05, precision=4,
-                settle_timeout=3.0, stall_time=0.2,
+                accel_time=0.2, retry_deadband=0.02, precision=4,
+                settle_timeout=5.0, stall_time=0.3,
             ),
             AxisConfig(
                 motor="m2", joint="y_axis", desc="Sample Y", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
-                accel_time=0.2, retry_deadband=0.05, precision=4,
-                settle_timeout=3.0, stall_time=0.2,
+                accel_time=0.2, retry_deadband=0.02, precision=4,
+                settle_timeout=5.0, stall_time=0.3,
             ),
             AxisConfig(
                 motor="m3", joint="z_axis", desc="Sample Z", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=1.0, high_limit=49.0, velocity=2.0, max_velocity=10.0,
-                accel_time=0.2, retry_deadband=0.5, precision=4,
-                settle_timeout=3.0, stall_time=0.2,
+                accel_time=0.2, retry_deadband=0.25, precision=4,
+                settle_timeout=10.0, stall_time=0.3,
             ),
             AxisConfig(
                 motor="m4", joint="theta_axis", desc="Sample Theta", egu="deg",
                 # Runtime reports radians; the USD authors limits in degrees.
                 sim_units_per_egu=UNIT_PRESETS["deg"],
                 low_limit=-179.0, high_limit=179.0, velocity=30.0, max_velocity=90.0,
-                accel_time=0.3, retry_deadband=0.1, precision=3,
-                settle_timeout=3.0, stall_time=0.2,
+                accel_time=0.3, retry_deadband=0.05, precision=3,
+                settle_timeout=5.0, stall_time=0.3,
             ),
         ],
     )

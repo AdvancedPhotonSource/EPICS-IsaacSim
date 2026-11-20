@@ -1,36 +1,85 @@
 {
-  "comment": "Adapter configuration for the digital-twin 4-DOF sample stage, matched to mechanism/beamline_stage.json. Soft limits sit INSIDE the articulation's physical joint limits, as a real beamline's soft limits protect its hard limits. Physical limits (runtime units): x,y = +/-0.025 m; z = 0..0.050 m; theta = +/-180 deg.",
+  "comment": "Adapter configuration for the digital-twin 4-DOF sample stage, matched to mechanism/beamline_stage.json. Soft limits sit INSIDE the articulation's physical joint limits (x,y = +/-0.025 m; z = 0..0.050 m; theta = +/-180 deg). retry_deadband values are measured steady-state errors from the running articulation on Sentosa, not estimates.",
   "prefix": "SIM:TWIN:",
-  "bind": {"http_host": "127.0.0.1", "http_port": 8227, "ca_interface": "127.0.0.1"},
+  "bind": {
+    "http_host": "127.0.0.1",
+    "http_port": 8227,
+    "ca_interface": "127.0.0.1"
+  },
   "stale_timeout": 1.0,
   "update_rate": 20.0,
   "axes": [
-    {"motor": "m1", "joint": "x_axis", "desc": "Sample X",
-     "units": {"sim": "m", "egu": "mm"},
-     "low_limit": -24.0, "high_limit": 24.0,
-     "velocity": 5.0, "max_velocity": 20.0, "accel_time": 0.2,
-     "retry_deadband": 0.05, "precision": 4,
-     "settle_timeout": 3.0, "stall_time": 0.2},
-
-    {"motor": "m2", "joint": "y_axis", "desc": "Sample Y",
-     "units": {"sim": "m", "egu": "mm"},
-     "low_limit": -24.0, "high_limit": 24.0,
-     "velocity": 5.0, "max_velocity": 20.0, "accel_time": 0.2,
-     "retry_deadband": 0.05, "precision": 4,
-     "settle_timeout": 3.0, "stall_time": 0.2},
-
-    {"motor": "m3", "joint": "z_axis", "desc": "Sample Z (vertical - carries gravity load)",
-     "units": {"sim": "m", "egu": "mm"},
-     "low_limit": 1.0, "high_limit": 49.0,
-     "velocity": 2.0, "max_velocity": 10.0, "accel_time": 0.2,
-     "retry_deadband": 0.5, "precision": 4,
-     "settle_timeout": 3.0, "stall_time": 0.2},
-
-    {"motor": "m4", "joint": "theta_axis", "desc": "Sample Theta",
-     "units": {"sim": "rad", "egu": "deg"},
-     "low_limit": -179.0, "high_limit": 179.0,
-     "velocity": 30.0, "max_velocity": 90.0, "accel_time": 0.3,
-     "retry_deadband": 0.1, "precision": 3,
-     "settle_timeout": 3.0, "stall_time": 0.2}
+    {
+      "motor": "m1",
+      "joint": "x_axis",
+      "desc": "Sample X",
+      "units": {
+        "sim": "m",
+        "egu": "mm"
+      },
+      "low_limit": -24.0,
+      "high_limit": 24.0,
+      "velocity": 5.0,
+      "max_velocity": 20.0,
+      "accel_time": 0.2,
+      "retry_deadband": 0.02,
+      "precision": 4,
+      "settle_timeout": 5.0,
+      "stall_time": 0.3
+    },
+    {
+      "motor": "m2",
+      "joint": "y_axis",
+      "desc": "Sample Y",
+      "units": {
+        "sim": "m",
+        "egu": "mm"
+      },
+      "low_limit": -24.0,
+      "high_limit": 24.0,
+      "velocity": 5.0,
+      "max_velocity": 20.0,
+      "accel_time": 0.2,
+      "retry_deadband": 0.02,
+      "precision": 4,
+      "settle_timeout": 5.0,
+      "stall_time": 0.3
+    },
+    {
+      "motor": "m3",
+      "joint": "z_axis",
+      "desc": "Sample Z (vertical - carries gravity load)",
+      "units": {
+        "sim": "m",
+        "egu": "mm"
+      },
+      "low_limit": 1.0,
+      "high_limit": 49.0,
+      "velocity": 2.0,
+      "max_velocity": 10.0,
+      "accel_time": 0.2,
+      "retry_deadband": 0.25,
+      "precision": 4,
+      "settle_timeout": 10.0,
+      "stall_time": 0.3
+    },
+    {
+      "motor": "m4",
+      "joint": "theta_axis",
+      "desc": "Sample Theta",
+      "units": {
+        "sim": "rad",
+        "egu": "deg"
+      },
+      "low_limit": -179.0,
+      "high_limit": 179.0,
+      "velocity": 30.0,
+      "max_velocity": 90.0,
+      "accel_time": 0.3,
+      "retry_deadband": 0.05,
+      "precision": 3,
+      "settle_timeout": 5.0,
+      "stall_time": 0.3
+    }
   ]
 }

@@ -460,7 +460,22 @@ class MotorAxis:
             # meaningless.  So wait while progress is still being made, and
             # only apply retry/.MISS once the readback has genuinely stalled
             # or the hard timeout fires.
-            if error < self._best_error - deadband * 0.01:
+            #
+            # This path governs only moves that cannot reach the deadband:
+            # a move that does reach it is completed by the check above, on
+            # the tick it arrives.  Progress is judged *relatively* rather
+            # than as a fraction of the deadband, because an exponentially
+            # converging drive improves by a roughly constant fraction of
+            # its remaining error each tick.  An absolute threshold is
+            # scale-dependent -- a wide deadband makes it give up early and
+            # a narrow one makes it wait far longer than necessary -- while
+            # a relative one stops when the error genuinely stops shrinking,
+            # which is the drive's steady-state floor however far away that
+            # floor happens to be.
+            if not math.isfinite(self._best_error):
+                self._best_error = error
+                self._stall_t = 0.0
+            elif self._best_error - error > max(self._best_error, deadband) * 1e-3:
                 self._best_error = error
                 self._stall_t = 0.0
             else:

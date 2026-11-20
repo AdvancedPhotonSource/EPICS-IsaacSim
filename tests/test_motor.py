@@ -399,3 +399,96 @@ def test_frozen_clock_alone_also_blocks_completion(axis, plant):
         plant.t_sim = frozen          # renderer wedged, still reporting playing
         outputs = axis.tick(plant.state())
     assert outputs.done_moving == 0
+
+
+# -- exponential convergence with a steady-state floor -------------------
+
+class SaggingPlant(FakePlant):
+    """A drive that converges exponentially onto a floor it never leaves.
+
+    This is what a gravity-loaded PhysX force drive does: it approaches the
+    commanded position asymptotically and settles a fixed distance short,
+    equal to load / stiffness. Measured on Sentosa's z axis as 0.144 mm.
+    """
+
+    def __init__(self, sag_sim, **kw):
+        super().__init__(**kw)
+        self.sag_sim = sag_sim
+
+    def advance(self, target_sim):
+        if not (self.playing and self.connected):
+            return
+        self.t_sim += self.dt
+        if target_sim is None:
+            return
+        import math
+        alpha = 1.0 - math.exp(-self.dt / max(self.tau, 1e-6))
+        # The drive chases a point `sag` short of the commanded target.
+        effective = target_sim - math.copysign(self.sag_sim, target_sim or 1.0)
+        self.position += (effective - self.position) * alpha
+
+
+def test_dmov_rises_on_entering_the_deadband_not_at_the_floor():
+    """.DMOV means "inside .RDBD", not "finished settling".
+
+    A finite-stiffness drive keeps creeping toward its floor after the move
+    is complete, so the deadband -- not the floor -- sets how precisely a
+    scan knows where the axis is. Measured on Sentosa: z entered a 0.5 mm
+    deadband at 0.367 mm of error and went on settling to 0.144 mm. That is
+    correct motor-record behaviour, and the reason to size .RDBD against the
+    position uncertainty a scan can tolerate rather than as loosely as the
+    drive allows.
+    """
+    cfg = AxisConfig(
+        motor="m3", joint="x_axis", egu="mm", sim_units_per_egu=1e-3,
+        low_limit=1.0, high_limit=49.0, velocity=2.0, max_velocity=10.0,
+        accel_time=0.2, retry_deadband=0.4, settle_timeout=30.0, stall_time=0.3,
+    )
+    axis = MotorAxis(cfg)
+    # tau=1.0 against a 1/60 s tick closes ~1.7% of the remaining error per
+    # step, matching the slow tail the real z drive shows.
+    plant = SaggingPlant(sag_sim=0.144e-3, tau=1.0)    # 0.144 mm floor
+
+    axis.request_move(25.0)
+    outputs = run(axis, plant, seconds=200)
+
+    assert outputs.done_moving == 1
+    assert outputs.missed == 0, "the floor is inside the deadband, so this is not a MISS"
+    error = abs(outputs.readback - 25.0)
+    assert error <= cfg.retry_deadband, "DMOV must not rise outside .RDBD"
+    assert error > 0.144, "cannot be closer than the drive's own floor"
+
+
+def test_tightening_the_deadband_tightens_dmov_position():
+    """The deadband, not the drive, bounds how well a scan knows the position."""
+    errors = {}
+    for deadband in (0.4, 0.2):
+        cfg = AxisConfig(
+            motor="m3", joint="x_axis", egu="mm", sim_units_per_egu=1e-3,
+            low_limit=1.0, high_limit=49.0, velocity=2.0, max_velocity=10.0,
+            accel_time=0.2, retry_deadband=deadband, settle_timeout=30.0,
+            stall_time=0.3,
+        )
+        axis = MotorAxis(cfg)
+        plant = SaggingPlant(sag_sim=0.144e-3, tau=1.0)
+        axis.request_move(25.0)
+        outputs = run(axis, plant, seconds=200)
+        assert outputs.done_moving == 1 and outputs.missed == 0
+        errors[deadband] = abs(outputs.readback - 25.0)
+    assert errors[0.2] < errors[0.4]
+
+
+def test_a_floor_outside_the_deadband_still_reports_missed():
+    """If the drive cannot physically reach the deadband, say so -- don't hang."""
+    cfg = AxisConfig(
+        motor="m3", joint="x_axis", egu="mm", sim_units_per_egu=1e-3,
+        low_limit=1.0, high_limit=49.0, velocity=5.0, max_velocity=10.0,
+        accel_time=0.2, retry_deadband=0.01, settle_timeout=5.0, stall_time=0.3,
+        max_retries=1,
+    )
+    axis = MotorAxis(cfg)
+    plant = SaggingPlant(sag_sim=0.5e-3, tau=0.05)     # 0.5 mm floor, deadband 0.01
+    axis.request_move(25.0)
+    outputs = run(axis, plant, seconds=120)
+    assert outputs.done_moving == 1, "must not hang"
+    assert outputs.missed == 1
