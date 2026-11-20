@@ -210,6 +210,7 @@ also covers running a WebRTC viewer alongside the console.
 
 ## Documentation
 
+- [`docs/byo-model.md`](docs/byo-model.md) — using your own CAD or USD model
 - [`docs/console.md`](docs/console.md) — interactive control and WebRTC streaming
 - [`docs/protocol.md`](docs/protocol.md) — the wire protocol
 - [`docs/motor-record.md`](docs/motor-record.md) — which fields are live, inert, or absent
