@@ -344,3 +344,59 @@ def test_motors_carry_the_label_that_makes_wa_find_them():
         cpt = cls._sig_attrs[axis.console_name]
         labels = cpt.kwargs.get("labels", set())
         assert "motors" in labels, f"{axis.console_name} is not labelled 'motors'"
+
+
+def test_event_loop_guard_restores_a_cleared_loop():
+    """IPython clears the thread's loop between cells; the guard restores it.
+
+    Regression for the error users actually hit: `RuntimeError: There is no
+    current event loop in thread 'MainThread'` on the first %mov. bluesky
+    builds an asyncio.Event without passing a loop, so it resolves the
+    ambient one -- which IPython has removed by then.
+    """
+    import asyncio
+
+    from isaac_epics.console import install_event_loop_guard
+
+    class FakeEvents:
+        def __init__(self):
+            self.hooks = []
+
+        def register(self, name, fn):
+            assert name == "pre_run_cell"
+            self.hooks.append(fn)
+
+    class FakeShell:
+        def __init__(self):
+            self.events = FakeEvents()
+
+    class FakeEngine:
+        pass
+
+    loop = asyncio.new_event_loop()
+    try:
+        engine = FakeEngine()
+        engine.loop = loop
+        shell = FakeShell()
+        assert install_event_loop_guard(shell, engine) is True
+        assert shell.events.hooks, "guard must register a pre_run_cell hook"
+
+        # Simulate what IPython leaves behind after running a cell.
+        asyncio.set_event_loop(None)
+        with pytest.raises(RuntimeError):
+            asyncio.get_event_loop()
+
+        shell.events.hooks[0]()          # the guard fires before the next cell
+        assert asyncio.get_event_loop() is loop
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
+def test_event_loop_guard_without_a_loop_is_a_no_op():
+    from isaac_epics.console import install_event_loop_guard
+
+    class Bare:
+        pass
+
+    assert install_event_loop_guard(object(), Bare()) is False

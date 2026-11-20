@@ -197,6 +197,47 @@ def _live_callback() -> Any:
     return _SafeCallback(_AutoTable())
 
 
+def install_event_loop_guard(shell: Any, engine: Any) -> bool:
+    """Keep a current event loop on the main thread for every cell.
+
+    IPython runs each prompt under asyncio and leaves the main thread with
+    no current event loop afterwards. On Python 3.9 ``asyncio.Event()``
+    resolves its loop through ``get_event_loop()``, which then raises
+    ``RuntimeError: There is no current event loop in thread 'MainThread'``.
+
+    bluesky constructs exactly such an Event inside
+    ``RunEngine._clear_call_cache``. It would pass the loop explicitly if
+    ``_loop_for_kwargs`` were populated, but on this version that dict is
+    empty, so the Event falls back to the ambient loop. The failure
+    therefore lands on the user's first ``%mov`` rather than at startup, and
+    presents as a bug in the magics.
+
+    Passing ``loop=`` to the RunEngine is not sufficient on its own, because
+    it is the *ambient* loop that Event consults. Re-establishing the
+    engine's own loop before each cell is the narrow fix, and binds the
+    Event to the loop the RunEngine actually runs on -- which is where
+    bluesky sets and clears it.
+
+    Returns True if the guard was installed.
+    """
+    loop = getattr(engine, "loop", None)
+    if loop is None:  # pragma: no cover - defensive
+        return False
+
+    def _ensure(*_args: Any, **_kwargs: Any) -> None:
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(loop)
+
+    _ensure()
+    try:
+        shell.events.register("pre_run_cell", _ensure)
+    except Exception:  # noqa: BLE001 - older IPython without the events API
+        return False
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="isaac-epics-console",
@@ -247,6 +288,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     shell_config = Config()
     shell_config.InteractiveShellApp.exec_lines = [
+        "from isaac_epics.console import install_event_loop_guard",
+        "install_event_loop_guard(get_ipython(), RE)",
         "from bluesky.magics import BlueskyMagics",
         # One RunEngine for both the magics and explicit RE(...) calls. The
         # magics class otherwise creates its own on a separate event loop,
