@@ -400,3 +400,41 @@ def test_event_loop_guard_without_a_loop_is_a_no_op():
         pass
 
     assert install_event_loop_guard(object(), Bare()) is False
+
+
+def test_spec_aliases_replace_the_shell_mv():
+    """`mv x 8` must move a motor, not rename a file.
+
+    IPython auto-aliases shell `mv`. SPEC trains users to type `mv` for a
+    motor move, so in a beamline-shaped console they will -- and silently
+    rename a file instead. The alias is removed and rebound to the magic.
+    """
+    from isaac_epics.console import install_spec_aliases
+
+    undefined = []
+    registered = []
+
+    class Aliases:
+        def undefine_alias(self, name):
+            undefined.append(name)
+
+    class MagicsManager:
+        magics = {"line": {"mov": lambda line: None, "movr": lambda line: None}}
+
+    class Shell:
+        alias_manager = Aliases()
+        magics_manager = MagicsManager()
+
+        def register_magic_function(self, func, kind, name):
+            registered.append(name)
+
+    bound = install_spec_aliases(Shell())
+    assert set(bound) == {"mv", "mvr", "umv", "umvr"}
+    assert "mv" in undefined, "the shell alias must be removed, or it wins"
+    assert set(registered) == {"mv", "mvr", "umv", "umvr"}
+
+
+def test_spec_aliases_survive_a_shell_without_magics():
+    from isaac_epics.console import install_spec_aliases
+
+    assert install_spec_aliases(object()) == []

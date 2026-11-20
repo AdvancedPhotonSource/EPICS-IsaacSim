@@ -41,6 +41,7 @@ BANNER = r"""
   ------------------------------------------------------------------------
   %mov x 10          move x to 10 (absolute)      %wa      where-all
   %movr x -2         move x by -2 (relative)      %ct      count detectors
+  %mv / %mvr         SPEC spellings of the above  (plain `mv` is the shell!)
   x.position         read a value                 status() link + positions
   RE(bp.scan([], x, -10, 10, 11))                 run a scan
   ------------------------------------------------------------------------
@@ -238,6 +239,48 @@ def install_event_loop_guard(shell: Any, engine: Any) -> bool:
     return True
 
 
+def install_spec_aliases(shell: Any) -> List[str]:
+    """Bind the SPEC spellings, and disarm the shell alias that shadows them.
+
+    This is a safety fix before it is a convenience. IPython auto-aliases
+    common shell commands, ``mv`` among them. SPEC trains beamline users to
+    type ``mv x 8`` to move a motor, so in a console that looks like a
+    beamline they will -- and get ``/bin/mv``. If a file named ``x`` happens
+    to exist in the working directory it is silently renamed to ``8``. The
+    command fails in the wrong domain, quietly, and nothing moves.
+
+    So ``mv`` is removed from the alias table and bound, with ``mvr``,
+    ``umv`` and ``umvr``, to the corresponding Bluesky magics. Bluesky's
+    ``%mov`` already prints a live progress bar, so the SPEC distinction
+    between ``mv`` and the "updated" ``umv`` does not apply here; both are
+    accepted because both are muscle memory.
+
+    Returns the names bound, for the banner.
+    """
+    bound: List[str] = []
+    try:
+        line_magics = shell.magics_manager.magics["line"]
+    except Exception:  # noqa: BLE001 - never block startup over aliases
+        return bound
+
+    for spec_name, magic_name in (("mv", "mov"), ("umv", "mov"),
+                                  ("mvr", "movr"), ("umvr", "movr")):
+        func = line_magics.get(magic_name)
+        if func is None:
+            continue
+        # Drop any shell alias of the same name first, or it wins.
+        try:
+            shell.alias_manager.undefine_alias(spec_name)
+        except Exception:  # noqa: BLE001 - absent alias is fine
+            pass
+        try:
+            shell.register_magic_function(func, "line", spec_name)
+            bound.append(spec_name)
+        except Exception:  # noqa: BLE001
+            pass
+    return bound
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="isaac-epics-console",
@@ -297,6 +340,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         # confusion lands exactly when a move is interrupted.
         "BlueskyMagics.RE = RE",
         "get_ipython().register_magics(BlueskyMagics)",
+        "from isaac_epics.console import install_spec_aliases",
+        "_spec = install_spec_aliases(get_ipython())",
+        "print('  SPEC spellings bound: ' + ', '.join('%' + n for n in _spec)) "
+        "if _spec else None",
+        "del _spec",
     ]
     shell_config.TerminalInteractiveShell.banner1 = ""
     shell_config.TerminalInteractiveShell.confirm_exit = False
