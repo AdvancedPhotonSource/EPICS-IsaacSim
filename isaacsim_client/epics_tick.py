@@ -138,6 +138,7 @@ class EpicsTickClient(object):
 
         self._lock = threading.Lock()
         self._outbound = None          # None until the loop supplies a frame
+        self._articulation = None      # sent once the loop supplies it
         self._frame_time = None        # wall clock when it was supplied
         self._suppressed = 0           # frames withheld as too old
         self._targets = {}
@@ -181,7 +182,7 @@ class EpicsTickClient(object):
 
     # -- per-frame API -----------------------------------------------------
 
-    def exchange(self, positions, t_sim, playing):
+    def exchange(self, positions, t_sim, playing, articulation=None):
         """Publish the latest joint state and return the latest targets.
 
         This is O(number of joints) and takes a lock for a few microseconds.
@@ -194,6 +195,11 @@ class EpicsTickClient(object):
             playing: Whether the simulation is actually stepping.  Report this
                 honestly: the adapter uses it to refuse to complete a move
                 against a frozen readback.
+            articulation: Optional description of the mechanism -- joint
+                names, types and limits -- so the adapter can check its
+                configuration against what actually exists instead of
+                trusting that two files stayed in step.  Send it on the
+                first few frames; it costs nothing to omit afterwards.
 
         Returns:
             dict: joint name -> commanded position in simulation units.  Empty
@@ -212,6 +218,8 @@ class EpicsTickClient(object):
                 "t_sim": float(t_sim),
                 "playing": bool(playing),
             }
+            if articulation is not None:
+                self._articulation = articulation
             self._frame_time = time.time()
             return dict(self._targets)
 
@@ -291,6 +299,8 @@ class EpicsTickClient(object):
                 "playing": frame["playing"],
                 "seq": self._seq,
             }
+            if self._articulation is not None:
+                payload["articulation"] = self._articulation
         body = json.dumps(payload).encode("utf-8")
 
         started = time.time()

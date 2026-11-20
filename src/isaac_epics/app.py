@@ -35,6 +35,7 @@ from .config import AdapterConfig
 from .ioc import build_ioc
 from .plant import SharedPlant
 from .transport import TickServer, port_is_free
+from .validate import check, errors
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ class Adapter:
         self._tick_period = 1.0 / config.update_rate
         self._ticks = 0
         self._last_warn = 0.0
+        self._checked = False
+        self._published_check = False
+        self.findings: list = []
         self._window_ticks = 0
         self._window_start = 0.0
         self._worst_stall = 0.0
@@ -75,12 +79,21 @@ class Adapter:
         next_at = loop.time()
         while True:
             next_at += self._tick_period
+            if not self._checked and self.plant.get_state().frames:
+                self._checked = True
+                self._report_configuration_check()
             try:
                 await self.ioc.tick_all()
             except Exception:  # noqa: BLE001 - a bad tick must not kill the IOC
                 logger.exception("tick failed")
             self._ticks += 1
             self._window_ticks += 1
+            if self._checked and not self._published_check:
+                self._published_check = True
+                try:
+                    await self.ioc.status.publish_check(self.findings)
+                except Exception:  # noqa: BLE001
+                    logger.debug("could not publish config check", exc_info=True)
             delay = next_at - loop.time()
             if delay < -self._tick_period:
                 # We are not keeping up. Resynchronise rather than spiral, and
@@ -113,6 +126,29 @@ class Adapter:
             elif self._window_start == 0.0:
                 self._window_start = time.monotonic()
             await asyncio.sleep(max(0.0, delay))
+
+    def _report_configuration_check(self) -> None:
+        """Compare the configuration against the live articulation, once.
+
+        Run on the first frame rather than at startup, because the
+        articulation does not exist until the simulation connects and
+        describes it. Errors are reported but not fatal: the operator may be
+        mid-way through bringing a new model up, and refusing to serve would
+        remove the very PVs they need to diagnose it. They are impossible to
+        miss in the log, and SIM:TWIN:CFGOK carries the verdict for a screen.
+        """
+        self.findings = check(self.config, self.plant.articulation)
+        bad = errors(self.findings)
+        if not self.findings:
+            logger.info("configuration matches the articulation: no findings")
+            return
+        logger.warning("=" * 72)
+        logger.warning("CONFIGURATION CHECK: %d error(s), %d warning(s)",
+                       len(bad), len(self.findings) - len(bad))
+        for finding in self.findings:
+            log = logger.error if finding.severity == "error" else logger.warning
+            log("  %s", finding)
+        logger.warning("=" * 72)
 
     async def run(self) -> None:
         """Run the CA server and the tick loop until cancelled."""

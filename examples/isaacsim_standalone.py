@@ -59,12 +59,27 @@ parser.add_argument("--url", default="http://127.0.0.1:8227",
 parser.add_argument("--rate", type=float, default=30.0,
                     help="Exchange rate with the adapter (Hz). Motor readback "
                          "rates are ~10 Hz; posting at full render rate is waste.")
+parser.add_argument("--usd", default=None,
+                    help="Open an existing USD stage instead of authoring one "
+                         "from a mechanism table. Requires --prim.")
+parser.add_argument("--prim", default=None,
+                    help="Articulation root prim to drive, e.g. /World/stage/base. "
+                         "Required with --usd. A stage may contain several "
+                         "articulations and guessing wrong looks like a physics "
+                         "bug, so it must be named.")
 parser.add_argument("--mechanism-root", default="/workspace/twin",
                     help="Directory containing the 'mechanism' package")
 parser.add_argument("--description", default=None,
                     help="Mechanism JSON (default: <mechanism-root>/mechanism/"
                          "beamline_stage.json)")
 parser.add_argument("--root", default="/World/stage", help="Stage root prim")
+parser.add_argument("--emit-config", default=None, metavar="FILE",
+                    help="Write an adapter configuration derived from the live "
+                         "articulation and exit. Joint names, types and limits "
+                         "come from the mechanism itself, so they cannot be "
+                         "mistyped.")
+parser.add_argument("--prefix", default="SIM:TWIN:",
+                    help="PV prefix to write into an emitted configuration")
 parser.add_argument("--physics-dt", type=float, default=1.0 / 240.0)
 parser.add_argument("--device", default="cpu", help="Physics device: cpu or cuda")
 parser.add_argument("--livestream", action="store_true")
@@ -107,22 +122,168 @@ def log(payload):
     print("[epics-bridge] " + json.dumps(payload), flush=True)
 
 
+def describe_articulation(robot, prim, meters_per_unit):
+    """Build the descriptor the adapter checks its configuration against."""
+    lower, upper = robot.get_dof_limits()
+    lower, upper = lower.numpy()[0], upper.numpy()[0]
+    types = joint_types(robot)
+    joints = []
+    for i, name in enumerate(robot.dof_names):
+        joints.append({"name": name, "type": types.get(name, "unknown"),
+                       "lower": float(lower[i]), "upper": float(upper[i])})
+    return {"prim": str(prim), "meters_per_unit": float(meters_per_unit),
+            "joints": joints}
+
+
+def joint_types(robot):
+    """Best-effort prismatic/revolute classification.
+
+    Isaac Sim exposes this differently across versions, so every lookup is
+    guarded. An unknown type is reported honestly as "unknown" rather than
+    guessed -- the adapter only uses it to warn about unit mismatches, and a
+    wrong guess there would be worse than no opinion.
+    """
+    out = {}
+    names = list(robot.dof_names)
+    for attr in ("dof_types", "joint_types"):
+        values = getattr(robot, attr, None)
+        if values is None:
+            continue
+        try:
+            for name, value in zip(names, list(values)):
+                text = str(value).lower()
+                if "prismatic" in text or "linear" in text or "translation" in text:
+                    out[name] = "prismatic"
+                elif "revolute" in text or "angular" in text or "rotation" in text:
+                    out[name] = "revolute"
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def emit_config(path, descriptor, prefix):
+    """Write an adapter configuration derived from the real articulation.
+
+    This removes the error that costs the most time when bringing up a new
+    model: a joint name that does not match anything, which drives nothing
+    while every PV looks healthy. Names, types and limits are taken from the
+    mechanism, so they cannot be mistyped.
+
+    What it cannot know is left marked. Velocities are a guess scaled to the
+    travel, and the deadband is deliberately set to a placeholder with a
+    comment, because the steady-state error of a drive depends on the mass it
+    carries and the gains it was given -- it has to be measured on the
+    running model, not inferred from its limits.
+    """
+    import math as _math
+
+    axes = []
+    for index, joint in enumerate(descriptor["joints"], start=1):
+        rotary = joint["type"] == "revolute"
+        lo, hi = joint.get("lower"), joint.get("upper")
+        if lo is None or hi is None or not (hi > lo):
+            lo, hi = (-_math.pi, _math.pi) if rotary else (-0.01, 0.01)
+        scale = (_math.pi / 180.0) if rotary else 1e-3     # per EGU, in sim units
+        lo_egu, hi_egu = lo / scale, hi / scale
+        # Keep soft limits inside the joint, as on a real beamline.
+        margin = (hi_egu - lo_egu) * 0.02
+        span = hi_egu - lo_egu
+        axes.append({
+            "motor": "m%d" % index,
+            "joint": joint["name"],
+            "alias": joint["name"].replace("-", "_"),
+            "desc": joint["name"],
+            "units": {"sim": "rad" if rotary else "m", "egu": "deg" if rotary else "mm"},
+            "low_limit": round(lo_egu + margin, 6),
+            "high_limit": round(hi_egu - margin, 6),
+            "velocity": round(max(span / 5.0, 1e-3), 6),
+            "max_velocity": round(max(span / 2.0, 1e-2), 6),
+            "accel_time": 0.2,
+            "retry_deadband": round(max(span * 1e-3, 1e-4), 6),
+            "settle_timeout": 5.0,
+            "stall_time": 0.3,
+            "precision": 3 if rotary else 4,
+        })
+
+    config = {
+        "comment": ("Generated from the live articulation at %s. Joint names, "
+                    "types and limits come from the mechanism and are correct. "
+                    "VELOCITY and RETRY_DEADBAND are placeholders: the deadband "
+                    "must exceed the drive's measured steady-state error, which "
+                    "depends on mass and gains and can only be measured on the "
+                    "running model. Run a move on each axis, let it settle "
+                    "fully, and set .RDBD above the residual error."
+                    % descriptor.get("prim", "?")),
+        "prefix": prefix,
+        "bind": {"http_host": "127.0.0.1", "http_port": 8227,
+                 "ca_interface": "127.0.0.1"},
+        "stale_timeout": 1.0,
+        "update_rate": 20.0,
+        "axes": axes,
+    }
+    with open(path, "w") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    return config
+
+
+def find_articulations(usd_stage):
+    """List prims that carry PhysicsArticulationRootAPI, for the error path."""
+    found = []
+    try:
+        from pxr import UsdPhysics
+        for prim in usd_stage.Traverse():
+            if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
+                found.append(prim.GetPath().pathString)
+    except Exception:  # noqa: BLE001 - diagnostics only
+        pass
+    return found
+
+
+def stage_meters_per_unit(usd_stage):
+    """Metres per stage unit. 1.0 unless the asset was authored otherwise."""
+    try:
+        from pxr import UsdGeom
+        return float(UsdGeom.GetStageMetersPerUnit(usd_stage))
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
 def main():
     description = args.description or os.path.join(
         args.mechanism_root, "mechanism", "beamline_stage.json")
 
-    stage_utils.create_new_stage(template="sunlight")
-    usd_stage = stage_utils.get_current_stage()
-    GroundPlane("/World/GroundPlane")
-    DomeLight("/World/DomeLight").set_intensities(np.array([1200.0]))
-
-    report = build(usd_stage, description, root=args.root)
-    log({"event": "mechanism_built",
-         **{k: v for k, v in report.items() if k != "body_paths"}})
+    if args.usd:
+        # Bring-your-own asset: open the stage and drive a named articulation.
+        from isaacsim.core.utils.stage import open_stage
+        open_stage(args.usd)
+        usd_stage = stage_utils.get_current_stage()
+        prim_path = args.prim
+        if not prim_path:
+            print("ERROR: --usd requires --prim naming the articulation root.",
+                  file=sys.stderr)
+            print("       A stage may hold several articulations; choosing one "
+                  "silently would look like a physics bug.", file=sys.stderr)
+            for candidate in find_articulations(usd_stage):
+                print("       candidate: %s" % candidate, file=sys.stderr)
+            simulation_app.close()
+            return 2
+        log({"event": "stage_opened", "usd": args.usd, "prim": prim_path})
+    else:
+        stage_utils.create_new_stage(template="sunlight")
+        usd_stage = stage_utils.get_current_stage()
+        GroundPlane("/World/GroundPlane")
+        DomeLight("/World/DomeLight").set_intensities(np.array([1200.0]))
+        report = build(usd_stage, description, root=args.root)
+        log({"event": "mechanism_built",
+             **{k: v for k, v in report.items() if k != "body_paths"}})
+        prim_path = report["articulation_roots"][0]
     simulation_app.update()
 
     SimulationManager.setup_simulation(dt=args.physics_dt, device=args.device)
-    robot = Articulation(report["articulation_roots"][0])
+    robot = Articulation(prim_path)
     timeline = omni.timeline.get_timeline_interface()
     timeline.play()
     simulation_app.update()
@@ -132,7 +293,18 @@ def main():
     lower, upper = lower.numpy()[0], upper.numpy()[0]
     index = {name: i for i, name in enumerate(dof_names)}
 
-    log({"event": "articulation", "dofs": dof_names, "num_dofs": robot.num_dofs})
+    meters_per_unit = stage_meters_per_unit(usd_stage)
+    descriptor = describe_articulation(robot, prim_path, meters_per_unit)
+    log({"event": "articulation", "dofs": dof_names, "num_dofs": robot.num_dofs,
+         "prim": str(prim_path), "meters_per_unit": meters_per_unit})
+
+    if args.emit_config:
+        emit_config(args.emit_config, descriptor, args.prefix)
+        log({"event": "config_written", "path": args.emit_config,
+             "axes": len(descriptor["joints"])})
+        simulation_app.close()
+        return 0
+
     for name, lo, hi in zip(dof_names, lower, upper):
         # Runtime units: metres for prismatic, radians for revolute. The
         # adapter's soft limits must sit INSIDE these, exactly as a real
@@ -160,6 +332,7 @@ def main():
                 positions=reported,
                 t_sim=float(timeline.get_current_time()),
                 playing=bool(timeline.is_playing()),
+                articulation=descriptor if frames <= 2 else None,
             )
 
             changed = False

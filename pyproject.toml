@@ -59,7 +59,9 @@ ignore = [
 "isaacsim_client/*" = ["UP004", "UP031"]
 # Isaac Sim requires SimulationApp to be constructed before any other import,
 # so module-level imports cannot all sit at the top.
-"examples/isaacsim_standalone.py" = ["E402"]
+# The bridge runs inside Isaac Sim's embedded interpreter and is kept
+# stylistically close to the digital-twin prototype it mirrors.
+"examples/isaacsim_standalone.py" = ["E402", "UP031"]
 "examples/fake_sim.py" = ["E402"]
 "examples/bluesky_scan.py" = ["E402"]
 "tests/*" = ["E402"]

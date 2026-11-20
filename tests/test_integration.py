@@ -227,3 +227,85 @@ def test_full_loop_moves_a_joint(server):
     assert outputs.done_moving == 1
     assert outputs.readback == pytest.approx(10.0, abs=1e-3)
     assert position == pytest.approx(0.010, abs=1e-5)
+
+
+# -- configuration check against the live articulation -------------------
+
+def test_articulation_descriptor_reaches_the_adapter(server):
+    srv, plant = server
+    post(srv.url, {
+        "protocol": 1, "positions": {"x_axis": 0.0}, "t_sim": 0.0,
+        "playing": True, "seq": 1,
+        "articulation": {
+            "prim": "/World/stage/base", "meters_per_unit": 1.0,
+            "joints": [{"name": "x_axis", "type": "prismatic",
+                        "lower": -0.025, "upper": 0.025}],
+        },
+    })
+    art = plant.articulation
+    assert art is not None
+    assert art.prim == "/World/stage/base"
+    assert art.joint("x_axis").joint_type == "prismatic"
+
+
+def test_config_check_catches_a_joint_that_does_not_exist():
+    from isaac_epics.config import AdapterConfig, AxisConfig
+    from isaac_epics.protocol import Articulation, JointInfo
+    from isaac_epics.validate import check, errors
+
+    config = AdapterConfig(prefix="SIM:T:", axes=[
+        AxisConfig(motor="m1", joint="x_axis", sim_units_per_egu=1e-3,
+                   low_limit=-10, high_limit=10)])
+    art = Articulation(joints=(JointInfo("joint_1", "prismatic", -0.02, 0.02),))
+    bad = errors(check(config, art))
+    assert bad and "does not exist" in bad[0].message
+    assert "joint_1" in bad[0].message, "must name what IS available"
+
+
+def test_config_check_catches_soft_limits_outside_the_joint():
+    from isaac_epics.config import AdapterConfig, AxisConfig
+    from isaac_epics.protocol import Articulation, JointInfo
+    from isaac_epics.validate import check, errors
+
+    config = AdapterConfig(prefix="SIM:T:", axes=[
+        AxisConfig(motor="m1", joint="x_axis", sim_units_per_egu=1e-3,
+                   low_limit=-50, high_limit=50)])
+    art = Articulation(joints=(JointInfo("x_axis", "prismatic", -0.025, 0.025),))
+    bad = errors(check(config, art))
+    assert len(bad) == 2
+    assert all("stall" in f.message for f in bad)
+
+
+def test_config_check_catches_a_scaled_stage():
+    from isaac_epics.config import default_config
+    from isaac_epics.protocol import Articulation
+    from isaac_epics.validate import check, errors
+
+    art = Articulation(meters_per_unit=0.001)
+    bad = errors(check(default_config(), art))
+    assert any("1000" in f.message for f in bad)
+
+
+def test_config_check_warns_when_nothing_described_it():
+    from isaac_epics.config import default_config
+    from isaac_epics.validate import check
+
+    findings = check(default_config(), None)
+    assert findings and findings[0].severity == "warning"
+    assert "could not be checked" in findings[0].message
+
+
+def test_matching_config_produces_no_findings():
+    import math
+
+    from isaac_epics.config import default_config
+    from isaac_epics.protocol import Articulation, JointInfo
+    from isaac_epics.validate import check
+
+    art = Articulation(meters_per_unit=1.0, joints=(
+        JointInfo("x_axis", "prismatic", -0.025, 0.025),
+        JointInfo("y_axis", "prismatic", -0.025, 0.025),
+        JointInfo("z_axis", "prismatic", 0.0, 0.05),
+        JointInfo("theta_axis", "revolute", -math.pi, math.pi),
+    ))
+    assert check(default_config(), art) == []

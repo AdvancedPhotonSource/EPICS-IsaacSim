@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 PROTOCOL_VERSION = 1
 
@@ -49,6 +49,71 @@ class ProtocolError(ValueError):
 
 
 @dataclass(frozen=True)
+class JointInfo:
+    """What the simulation reports about one joint of its articulation.
+
+    Sent so the adapter can check its configuration against the mechanism
+    that actually exists, rather than trusting that a human kept two files
+    in step. A ``joint`` name that matches nothing drives nothing, and a
+    soft limit outside the physical joint produces ``.MISS`` after retries --
+    both read as faults rather than as the configuration errors they are.
+    """
+
+    name: str
+    joint_type: str = "unknown"      # prismatic / revolute / unknown
+    lower: Optional[float] = None    # simulation units
+    upper: Optional[float] = None
+
+    @staticmethod
+    def from_json(obj: Any) -> "JointInfo":
+        if not isinstance(obj, dict) or not isinstance(obj.get("name"), str):
+            raise ProtocolError("each joint descriptor needs a string 'name'")
+        lower = obj.get("lower")
+        upper = obj.get("upper")
+        return JointInfo(
+            name=obj["name"],
+            joint_type=str(obj.get("type", "unknown")),
+            lower=None if lower is None else _finite_float(lower, "joint lower"),
+            upper=None if upper is None else _finite_float(upper, "joint upper"),
+        )
+
+
+@dataclass(frozen=True)
+class Articulation:
+    """A description of the articulation the simulation is driving.
+
+    Optional: an older client simply does not send it, and the adapter then
+    has nothing to check against and says so rather than assuming agreement.
+    """
+
+    prim: str = ""
+    meters_per_unit: float = 1.0
+    joints: Tuple[JointInfo, ...] = ()
+
+    @staticmethod
+    def from_json(obj: Any) -> "Articulation":
+        if not isinstance(obj, dict):
+            raise ProtocolError("'articulation' must be a JSON object")
+        raw = obj.get("joints", [])
+        if not isinstance(raw, list):
+            raise ProtocolError("'articulation.joints' must be a list")
+        if len(raw) > MAX_JOINTS:
+            raise ProtocolError("too many joints in articulation descriptor")
+        return Articulation(
+            prim=str(obj.get("prim", "")),
+            meters_per_unit=_finite_float(obj.get("meters_per_unit", 1.0),
+                                          "meters_per_unit"),
+            joints=tuple(JointInfo.from_json(j) for j in raw),
+        )
+
+    def joint(self, name: str) -> Optional[JointInfo]:
+        for info in self.joints:
+            if info.name == name:
+                return info
+        return None
+
+
+@dataclass(frozen=True)
 class SimFrame:
     """One frame of state reported *by* Isaac Sim.
 
@@ -65,6 +130,8 @@ class SimFrame:
         seq: Monotonic frame counter from the client, used to detect restarts
             and reordering.
         meta: Free-form client diagnostics.  Never interpreted by motor logic.
+        articulation: Optional description of the mechanism, used to check
+            the adapter's configuration against what actually exists.
     """
 
     positions: Dict[str, float]
@@ -72,6 +139,7 @@ class SimFrame:
     playing: bool
     seq: int = 0
     meta: Dict[str, Any] = field(default_factory=dict)
+    articulation: Optional["Articulation"] = None
 
     @staticmethod
     def from_json(obj: Any) -> "SimFrame":
@@ -117,7 +185,14 @@ class SimFrame:
         if not isinstance(meta, dict):
             raise ProtocolError("'meta' must be a JSON object when present")
 
-        return SimFrame(positions=positions, t_sim=t_sim, playing=playing, seq=seq, meta=meta)
+        raw_articulation = obj.get("articulation")
+        articulation = (
+            Articulation.from_json(raw_articulation)
+            if raw_articulation is not None else None
+        )
+
+        return SimFrame(positions=positions, t_sim=t_sim, playing=playing, seq=seq,
+                        meta=meta, articulation=articulation)
 
 
 @dataclass(frozen=True)

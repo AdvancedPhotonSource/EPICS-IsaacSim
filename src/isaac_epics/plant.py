@@ -29,7 +29,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Mapping, Optional
 
-from .protocol import SimFrame, describe_link_state
+from .protocol import Articulation, SimFrame, describe_link_state
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,7 @@ class SharedPlant(Plant):
         self._seq = 0
         self._frames = 0
         self._last_rx: Optional[float] = None
+        self._articulation: Optional[Articulation] = None
 
     # -- driven by the transport (HTTP server thread) ---------------------
 
@@ -133,6 +134,8 @@ class SharedPlant(Plant):
             self._seq = frame.seq
             self._frames += 1
             self._last_rx = now
+            if frame.articulation is not None:
+                self._articulation = frame.articulation
             return dict(self._targets)
 
     # -- Plant interface ---------------------------------------------------
@@ -162,6 +165,12 @@ class SharedPlant(Plant):
             )
 
     # -- diagnostics -------------------------------------------------------
+
+    @property
+    def articulation(self) -> Optional[Articulation]:
+        """The last articulation descriptor the simulation sent, if any."""
+        with self._lock:
+            return self._articulation
 
     @property
     def targets(self) -> Dict[str, float]:

@@ -493,6 +493,20 @@ class StatusPVGroup(PVGroup):
                         doc="Frames accepted since adapter start")
     protocol = pvproperty(value=PROTOCOL_VERSION, name="PROTO", dtype=ChannelType.LONG,
                           read_only=True, doc="Wire protocol version")
+    cfg_ok = pvproperty(value=-1, name="CFGOK", dtype=ChannelType.LONG, read_only=True,
+                        doc="Config vs articulation: 1 ok, 0 errors, -1 not yet checked")
+    cfg_msg = pvproperty(value="not checked", name="CFGMSG", dtype=ChannelType.STRING,
+                         read_only=True, doc="First configuration finding, if any")
+
+    async def publish_check(self, findings: Any) -> None:
+        """Publish the verdict of the configuration check."""
+        bad = [f for f in findings if getattr(f, "severity", "") == "error"]
+        await _write(self.cfg_ok, 0 if bad else 1, severity=2 if bad else 0)
+        if findings:
+            first = str(findings[0])
+            await _write(self.cfg_msg, first[:39], severity=2 if bad else 1)
+        else:
+            await _write(self.cfg_msg, "ok")
 
     async def publish(self, state: Any) -> None:
         sev = 0 if state.stepping else (3 if not state.connected else 1)
