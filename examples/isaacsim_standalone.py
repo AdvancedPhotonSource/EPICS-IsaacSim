@@ -1,153 +1,195 @@
-"""Isaac Sim standalone script: drive an articulation from EPICS.
+"""Isaac Sim standalone script: drive the beamline stage articulation from EPICS.
 
-**Verification status.** Everything else in this repository has been run and
-tested. This file has **not** been executed against a real Isaac Sim -- the
-development machine has no Isaac Sim install and no NVIDIA GPU. The adapter
-side, the wire protocol and ``epics_tick.py`` are all covered by tests that do
-run (see ``tests/test_integration.py``), and ``examples/fake_sim.py`` exercises
-the identical client against the identical protocol. What is unverified here is
-only the Isaac Sim API usage: the joint-name lookup and the articulation
-read/write calls. Treat those as a starting point to confirm on Sentosa, not
-as a tested path. The project's standing rule is that simulator state is
-authoritative and claimed validation must be real, so this notice stays until
-someone runs it.
-
-What this does
---------------
-Adds a tick to the per-frame loop that posts joint positions to the adapter
-and applies the targets it returns. The simulation is the *client*
+Adds an EPICS tick to the per-frame loop. The simulation is the *client*
 (architecture decision 7.2): it opens one outbound connection to one endpoint,
-never listens, and knows nothing about EPICS.
+never listens, and knows nothing about EPICS -- it reports joint positions in
+simulation units and applies joint targets in simulation units. Everything
+else is the adapter's problem.
 
-Usage::
+API provenance
+--------------
+The Isaac Sim calls here are **not guesses**. They mirror
+``digital-twin/prototype/beamline_stage_authored.py``, which is known to run
+on Sentosa, and were confirmed by ``examples/isaacsim_probe.py`` against Isaac
+Sim 6.2.0 (embedded Python 3.12.14). Specifically:
 
-    # on the host, outside the container
-    isaac-epics-ioc &
+* ``isaacsim.core.experimental.prims.Articulation``, constructed with a
+  positional prim path -- **not** ``isaacsim.core.prims.Articulation`` with
+  ``prim_paths_expr``. Both exist in 6.2.0; the experimental one is what the
+  working prototype uses.
+* No ``World``. Stage setup is ``stage_utils.create_new_stage`` plus
+  ``SimulationManager.setup_simulation``, and stepping is
+  ``simulation_app.update()``.
+* ``get_dof_positions()`` / ``set_dof_position_targets()`` return and accept
+  warp arrays shaped ``(num_envs, num_dofs)``; hence ``.numpy()[0]`` and
+  ``np.array([targets])``.
+* Play state and simulation time come from ``omni.timeline``.
 
-    # inside Isaac Sim
-    ./python.sh examples/isaacsim_standalone.py --usd /path/to/stage.usd
+The stage is authored at runtime from the mechanism JSON, because this project
+has no ``.usd`` on disk -- geometry, masses and joint limits live in
+``mechanism/beamline_stage.json`` and are applied by ``build_mechanism.build``.
+That builder is imported read-only from the digital-twin checkout; nothing in
+this script writes to it.
 
-The container runs with ``--network=host`` on these hosts (required for WebRTC
-streaming), so ``127.0.0.1`` reaches the adapter on the host with no extra
-plumbing.
+Usage (inside the container)::
+
+    /isaac-sim/python.sh /workspace/epics/examples/isaacsim_standalone.py \
+        --mechanism-root /workspace/twin \
+        --description /workspace/twin/mechanism/beamline_stage.json \
+        --url http://127.0.0.1:8227
+
+Requires two bind mounts: this repo, and the digital-twin prototype directory
+that provides ``mechanism/``.
 """
 
 import argparse
+import json
 import os
 import sys
 
 # --------------------------------------------------------------------------
-# SimulationApp must be constructed before any other Isaac Sim import. This is
-# a hard ordering requirement of Kit, not a style choice.
+# SimulationApp must be constructed before any other Isaac Sim import. A hard
+# ordering requirement of Kit, not a style choice.
 # --------------------------------------------------------------------------
-from isaacsim import SimulationApp  # noqa: E402  (must come first)
+from isaacsim import SimulationApp  # noqa: E402
+
+parser = argparse.ArgumentParser(description="Isaac Sim <-> EPICS adapter bridge")
+parser.add_argument("--url", default="http://127.0.0.1:8227",
+                    help="Adapter tick endpoint")
+parser.add_argument("--rate", type=float, default=30.0,
+                    help="Exchange rate with the adapter (Hz). Motor readback "
+                         "rates are ~10 Hz; posting at full render rate is waste.")
+parser.add_argument("--mechanism-root", default="/workspace/twin",
+                    help="Directory containing the 'mechanism' package")
+parser.add_argument("--description", default=None,
+                    help="Mechanism JSON (default: <mechanism-root>/mechanism/"
+                         "beamline_stage.json)")
+parser.add_argument("--root", default="/World/stage", help="Stage root prim")
+parser.add_argument("--physics-dt", type=float, default=1.0 / 240.0)
+parser.add_argument("--device", default="cpu", help="Physics device: cpu or cuda")
+parser.add_argument("--livestream", action="store_true")
+parser.add_argument("--status-every", type=int, default=600,
+                    help="Frames between link status lines (0 to disable)")
+args, _ = parser.parse_known_args()
+
+CFG = {"headless": True, "hide_ui": False}
+if args.livestream:
+    CFG.update({"width": 1280, "height": 720, "window_width": 1920,
+                "window_height": 1080, "renderer": "RaytracedLighting",
+                "display_options": 3286})
+
+simulation_app = SimulationApp(CFG)
+
+# Isaac Sim imports must follow SimulationApp construction.
+import isaacsim.core.experimental.utils.stage as stage_utils  # noqa: E402
+import numpy as np  # noqa: E402
+import omni.timeline  # noqa: E402
+from isaacsim.core.experimental.objects import DomeLight, GroundPlane  # noqa: E402
+from isaacsim.core.experimental.prims import Articulation  # noqa: E402
+from isaacsim.core.simulation_manager import SimulationManager  # noqa: E402
+
+if args.livestream:
+    from isaacsim.core.experimental.utils.app import enable_extension
+    simulation_app.set_setting("/app/window/drawMouse", True)
+    enable_extension("omni.kit.livestream.app")
+
+# The mechanism builder lives in the digital-twin checkout and is used
+# read-only. The EPICS client is a single stdlib-only file in this repo.
+sys.path.insert(0, os.path.abspath(args.mechanism_root))
+from mechanism.build_mechanism import build  # noqa: E402
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "isaacsim_client"))
+from epics_tick import EpicsTickClient  # noqa: E402
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Isaac Sim <-> EPICS adapter bridge")
-    parser.add_argument("--usd", help="USD stage to open. Omit to build a bare stage.")
-    parser.add_argument("--prim", default="/World/Stage",
-                        help="Articulation prim path")
-    parser.add_argument("--url", default="http://127.0.0.1:8227",
-                        help="Adapter tick endpoint")
-    parser.add_argument("--rate", type=float, default=30.0,
-                        help="Exchange rate with the adapter (Hz)")
-    parser.add_argument("--headless", action="store_true")
-    parser.add_argument("--joints", default="",
-                        help="Comma-separated joint names. Default: every DOF "
-                             "the articulation reports.")
-    return parser.parse_args(argv)
+def log(payload):
+    print("[epics-bridge] " + json.dumps(payload), flush=True)
 
 
-def main(argv=None):
-    args = parse_args(argv)
+def main():
+    description = args.description or os.path.join(
+        args.mechanism_root, "mechanism", "beamline_stage.json")
 
-    simulation_app = SimulationApp({"headless": args.headless})
+    stage_utils.create_new_stage(template="sunlight")
+    usd_stage = stage_utils.get_current_stage()
+    GroundPlane("/World/GroundPlane")
+    DomeLight("/World/DomeLight").set_intensities(np.array([1200.0]))
 
-    # Isaac Sim imports must follow SimulationApp construction.
-    import numpy as np  # noqa: E402
-    from isaacsim.core.api import World  # noqa: E402
-    from isaacsim.core.prims import Articulation  # noqa: E402
+    report = build(usd_stage, description, root=args.root)
+    log({"event": "mechanism_built",
+         **{k: v for k, v in report.items() if k != "body_paths"}})
+    simulation_app.update()
 
-    sys.path.insert(
-        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "isaacsim_client")
-    )
-    from epics_tick import EpicsTickClient  # noqa: E402
+    SimulationManager.setup_simulation(dt=args.physics_dt, device=args.device)
+    robot = Articulation(report["articulation_roots"][0])
+    timeline = omni.timeline.get_timeline_interface()
+    timeline.play()
+    simulation_app.update()
 
-    world = World(stage_units_in_meters=1.0)
-    if args.usd:
-        from isaacsim.core.utils.stage import open_stage
-        open_stage(args.usd)
-        world = World(stage_units_in_meters=1.0)
-    world.reset()
+    dof_names = list(robot.dof_names)
+    lower, upper = robot.get_dof_limits()
+    lower, upper = lower.numpy()[0], upper.numpy()[0]
+    index = {name: i for i, name in enumerate(dof_names)}
 
-    articulation = Articulation(prim_paths_expr=args.prim, name="stage")
-    world.scene.add(articulation)
-    world.reset()
-
-    dof_names = list(articulation.dof_names)
-    if args.joints:
-        wanted = [name.strip() for name in args.joints.split(",") if name.strip()]
-        missing = [name for name in wanted if name not in dof_names]
-        if missing:
-            # Fail loudly rather than silently mirroring the wrong joints. A
-            # typo here would drive a different axis than the PV claims, which
-            # is the most dangerous kind of quiet bug in this system.
-            print(f"ERROR: joints not found on {args.prim}: {missing}", file=sys.stderr)
-            print(f"       available: {dof_names}", file=sys.stderr)
-            simulation_app.close()
-            return 2
-    else:
-        wanted = dof_names
-
-    indices = [dof_names.index(name) for name in wanted]
-    print(f"EPICS bridge: {args.prim}")
-    print(f"  joints  : {wanted}")
-    print(f"  adapter : {args.url}")
-    print("  units   : metres for prismatic joints, radians for revolute "
-          "(engineering units are the adapter's problem)")
+    log({"event": "articulation", "dofs": dof_names, "num_dofs": robot.num_dofs})
+    for name, lo, hi in zip(dof_names, lower, upper):
+        # Runtime units: metres for prismatic, radians for revolute. The
+        # adapter's soft limits must sit INSIDE these, exactly as a real
+        # beamline's soft limits protect its hard limits.
+        log({"event": "dof_limit_runtime_units", "joint": name,
+             "lower": round(float(lo), 6), "upper": round(float(hi), 6)})
 
     client = EpicsTickClient(args.url, rate_hz=args.rate).start()
+    log({"event": "epics_client_started", "url": args.url, "rate_hz": args.rate})
 
-    # Seed the commanded targets from the current pose so the first exchange
-    # cannot jolt the articulation toward a stale setpoint.
-    try:
-        last_targets = np.array(articulation.get_joint_positions()[0], dtype=float)
-    except Exception:
-        last_targets = np.zeros(len(dof_names), dtype=float)
-
+    # Seed targets from the current pose so the first exchange cannot jolt the
+    # articulation toward a stale setpoint.
+    targets = robot.get_dof_positions().numpy()[0].copy()
     frames = 0
+
     try:
         while simulation_app.is_running():
-            world.step(render=not args.headless)
+            simulation_app.update()
             frames += 1
 
-            positions = np.array(articulation.get_joint_positions()[0], dtype=float)
-            reported = {name: float(positions[i]) for name, i in zip(wanted, indices)}
+            measured = robot.get_dof_positions().numpy()[0]
+            reported = {name: float(measured[i]) for name, i in index.items()}
 
-            targets = client.exchange(
+            returned = client.exchange(
                 positions=reported,
-                t_sim=float(world.current_time),
-                playing=bool(world.is_playing()),
+                t_sim=float(timeline.get_current_time()),
+                playing=bool(timeline.is_playing()),
             )
 
-            if targets:
-                changed = False
-                for name, value in targets.items():
-                    if name in wanted:
-                        last_targets[dof_names.index(name)] = value
-                        changed = True
-                if changed:
-                    articulation.set_joint_position_targets(
-                        np.expand_dims(last_targets, axis=0)
-                    )
+            changed = False
+            for name, value in returned.items():
+                i = index.get(name)
+                if i is not None:
+                    # Clamp to the articulation's own limits. The adapter
+                    # should never command outside them, but a target the
+                    # physics cannot honour would stall the joint and surface
+                    # as .MISS -- better to refuse it here and keep the
+                    # failure legible.
+                    targets[i] = float(np.clip(value, lower[i], upper[i]))
+                    changed = True
+            if changed:
+                robot.set_dof_position_targets(np.array([targets], dtype=np.float32))
 
-            if frames % 600 == 0:
-                print(f"  {client.stats()}")
+            if args.status_every and frames % args.status_every == 0:
+                stats = client.stats()
+                log({"event": "link", "connected": stats.connected,
+                     "sent": stats.sent, "errors": stats.errors,
+                     "suppressed": stats.suppressed,
+                     "rtt_ms": round(stats.round_trip * 1e3, 2),
+                     "last_error": stats.last_error,
+                     "measured": {n: round(float(measured[i]), 6)
+                                  for n, i in index.items()}})
     except KeyboardInterrupt:
         pass
     finally:
         client.stop()
+        log({"status": "DONE", "frames": frames})
         simulation_app.close()
     return 0
 

@@ -353,11 +353,35 @@ class AdapterConfig:
 
 
 def default_config() -> AdapterConfig:
-    """The 4-DOF stage from the existing twin prototype.
+    """The 4-DOF stage from the digital-twin prototype.
 
-    ``x_axis`` / ``y_axis`` / ``z_axis`` are prismatic and reported in metres;
-    ``theta_axis`` is revolute and reported in radians.  Served as mm and
-    degrees respectively, which is what a beamline client expects.
+    Limits match ``mechanism/beamline_stage.json``, the authoritative
+    description the articulation is actually built from:
+
+    ======  =========  ===========================  ==================
+    Joint   Type       Physical limit (runtime)     Soft limit served
+    ======  =========  ===========================  ==================
+    x_axis  prismatic  -0.025 .. 0.025 m            -24 .. 24 mm
+    y_axis  prismatic  -0.025 .. 0.025 m            -24 .. 24 mm
+    z_axis  prismatic  0.0 .. 0.050 m               1 .. 49 mm
+    theta   revolute   -180 .. 180 deg              -179 .. 179 deg
+    ======  =========  ===========================  ==================
+
+    The soft limits sit *inside* the physical ones, which is how a real
+    beamline is configured: soft limits exist to keep the mechanism off its
+    hard stops. Serving soft limits wider than the joint would let a client
+    command a position the articulation physically cannot reach -- the move
+    would stall against the PhysX limit and surface as ``.MISS`` after
+    retries, which reads like a hardware fault rather than the configuration
+    error it is.
+
+    ``retry_deadband`` on ``z_axis`` is deliberately the loosest. It is the
+    only axis carrying a gravity load, and its drive is a force drive with
+    finite stiffness (300000 N/m against roughly 44 N), so it settles a
+    predictable distance below its target -- of order 0.15 mm. A deadband
+    tighter than that steady-state error would make every z move report
+    ``.MISS`` forever. These values are starting points to be replaced by
+    measurements from the running articulation.
     """
     return AdapterConfig(
         prefix=os.environ.get("ISAAC_EPICS_PREFIX", "SIM:TWIN:"),
@@ -365,27 +389,31 @@ def default_config() -> AdapterConfig:
             AxisConfig(
                 motor="m1", joint="x_axis", desc="Sample X", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
-                low_limit=-50.0, high_limit=50.0, velocity=10.0, max_velocity=50.0,
-                accel_time=0.2, retry_deadband=1e-3, precision=4,
+                low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
+                accel_time=0.2, retry_deadband=0.05, precision=4,
+                settle_timeout=3.0, stall_time=0.2,
             ),
             AxisConfig(
                 motor="m2", joint="y_axis", desc="Sample Y", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
-                low_limit=-50.0, high_limit=50.0, velocity=10.0, max_velocity=50.0,
-                accel_time=0.2, retry_deadband=1e-3, precision=4,
+                low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
+                accel_time=0.2, retry_deadband=0.05, precision=4,
+                settle_timeout=3.0, stall_time=0.2,
             ),
             AxisConfig(
                 motor="m3", joint="z_axis", desc="Sample Z", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
-                low_limit=-25.0, high_limit=25.0, velocity=5.0, max_velocity=25.0,
-                accel_time=0.2, retry_deadband=1e-3, precision=4,
+                low_limit=1.0, high_limit=49.0, velocity=2.0, max_velocity=10.0,
+                accel_time=0.2, retry_deadband=0.5, precision=4,
+                settle_timeout=3.0, stall_time=0.2,
             ),
             AxisConfig(
                 motor="m4", joint="theta_axis", desc="Sample Theta", egu="deg",
-                # Runtime reports radians; USD authors limits in degrees.
+                # Runtime reports radians; the USD authors limits in degrees.
                 sim_units_per_egu=UNIT_PRESETS["deg"],
-                low_limit=-180.0, high_limit=180.0, velocity=30.0, max_velocity=90.0,
-                accel_time=0.3, retry_deadband=1e-2, precision=3,
+                low_limit=-179.0, high_limit=179.0, velocity=30.0, max_velocity=90.0,
+                accel_time=0.3, retry_deadband=0.1, precision=3,
+                settle_timeout=3.0, stall_time=0.2,
             ),
         ],
     )

@@ -185,3 +185,63 @@ def test_tilde_is_expanded(tmp_path, monkeypatch):
         '{"prefix": "SIM:X:", "axes": [{"motor": "m1", "joint": "x"}]}'
     )
     assert AdapterConfig.from_file("~/cfg.json").prefix == "SIM:X:"
+
+
+# -- soft limits must stay inside the articulation's physical limits ------
+
+#: Physical joint limits from digital-twin ``mechanism/beamline_stage.json``,
+#: in the runtime units the Isaac Sim tensor API reports (metres, radians).
+#: These are a property of the authored articulation, not of this adapter --
+#: if the mechanism changes, this table and the config must change together.
+MECHANISM_LIMITS_SIM_UNITS = {
+    "x_axis": (-0.025, 0.025),
+    "y_axis": (-0.025, 0.025),
+    "z_axis": (0.0, 0.050),
+    "theta_axis": (-math.pi, math.pi),
+}
+
+
+def test_soft_limits_sit_inside_the_physical_joint_limits():
+    """Soft limits exist to keep the mechanism off its hard stops.
+
+    If a soft limit were wider than the joint, the adapter would accept a
+    move the articulation cannot physically make. The joint would stall
+    against its PhysX limit and the move would surface as ``.MISS`` after
+    retries -- indistinguishable, to a scan, from a hardware fault.
+    """
+    for axis in default_config().axes:
+        lo_sim, hi_sim = MECHANISM_LIMITS_SIM_UNITS[axis.joint]
+        assert axis.to_sim(axis.low_limit) >= lo_sim, (
+            f"{axis.motor}: soft low limit {axis.low_limit} {axis.egu} is below "
+            f"the {axis.joint} joint limit"
+        )
+        assert axis.to_sim(axis.high_limit) <= hi_sim, (
+            f"{axis.motor}: soft high limit {axis.high_limit} {axis.egu} is above "
+            f"the {axis.joint} joint limit"
+        )
+
+
+def test_z_deadband_exceeds_its_predicted_gravity_sag():
+    """z is the only axis carrying a gravity load into a finite-stiffness drive.
+
+    Load is z_carriage (3.0 kg) + theta_platter (1.5 kg) against a force
+    drive of stiffness 300000 N/m, so the joint settles roughly
+    4.5*9.81/300000 = 0.15 mm below target. A deadband tighter than that
+    makes every z move report .MISS forever.
+    """
+    sag_mm = (3.0 + 1.5) * 9.81 / 300000.0 * 1000.0
+    z = default_config().axis("m3")
+    assert z.retry_deadband > sag_mm, (
+        f"z deadband {z.retry_deadband} mm must exceed the ~{sag_mm:.3f} mm "
+        "steady-state sag of its drive"
+    )
+
+
+def test_shipped_example_config_matches_default_config():
+    """examples/beamline.json and default_config() must not drift apart."""
+    shipped = AdapterConfig.from_file("examples/beamline.json")
+    built = default_config()
+    assert {a.motor: (a.low_limit, a.high_limit) for a in shipped.axes} == \
+           {a.motor: (a.low_limit, a.high_limit) for a in built.axes}
+    assert {a.motor: a.joint for a in shipped.axes} == \
+           {a.motor: a.joint for a in built.axes}

@@ -82,9 +82,9 @@ async def test_control_limits_are_published(ioc):
     """
     group = ioc.motor_group("m1")
     await group._publish_limits()
-    assert group.val.upper_ctrl_limit == pytest.approx(50.0)
-    assert group.val.lower_ctrl_limit == pytest.approx(-50.0)
-    assert group.rbv.upper_ctrl_limit == pytest.approx(50.0)
+    assert group.val.upper_ctrl_limit == pytest.approx(24.0)
+    assert group.val.lower_ctrl_limit == pytest.approx(-24.0)
+    assert group.rbv.upper_ctrl_limit == pytest.approx(24.0)
 
 
 async def test_changing_hlm_updates_the_control_limits(ioc):
@@ -98,7 +98,7 @@ async def test_changing_hlm_updates_the_control_limits(ioc):
 async def test_inverted_limit_write_is_refused(ioc):
     group = ioc.motor_group("m1")
     await group.hlm.write(-100.0)       # below .LLM
-    assert group.axis.high_limit == pytest.approx(50.0), "limits must stay ordered"
+    assert group.axis.high_limit == pytest.approx(24.0), "limits must stay ordered"
 
 
 async def test_velo_is_clamped_to_vmax(ioc):
