@@ -238,10 +238,32 @@ def test_z_deadband_exceeds_its_predicted_gravity_sag():
 
 
 def test_shipped_example_config_matches_default_config():
-    """examples/beamline.json and default_config() must not drift apart."""
+    """examples/beamline.json and default_config() must not drift apart.
+
+    Compares every field rather than a hand-picked few. An earlier version
+    checked only limits and joints, and silently missed that the shipped
+    JSON had no console aliases while the built-in config did -- so
+    ``%mov x 10`` worked with one and raised NameError with the other.
+    """
     shipped = AdapterConfig.from_file("examples/beamline.json")
     built = default_config()
-    assert {a.motor: (a.low_limit, a.high_limit) for a in shipped.axes} == \
-           {a.motor: (a.low_limit, a.high_limit) for a in built.axes}
-    assert {a.motor: a.joint for a in shipped.axes} == \
-           {a.motor: a.joint for a in built.axes}
+    fields = [f for f in AxisConfig.__dataclass_fields__]
+    for a, b in zip(sorted(shipped.axes, key=lambda x: x.motor),
+                    sorted(built.axes, key=lambda x: x.motor)):
+        for field_name in fields:
+            assert getattr(a, field_name) == getattr(b, field_name), (
+                f"{a.motor}.{field_name}: example JSON has "
+                f"{getattr(a, field_name)!r}, default_config has "
+                f"{getattr(b, field_name)!r}"
+            )
+
+
+def test_console_aliases_are_usable_identifiers():
+    """`%mov x 10` binds the alias as a Python name, so it must be one."""
+    for axis in default_config().axes:
+        assert axis.console_name.isidentifier()
+
+
+def test_bad_alias_rejected():
+    with pytest.raises(ConfigError, match="identifier"):
+        AxisConfig(motor="m1", joint="j", alias="not a name")

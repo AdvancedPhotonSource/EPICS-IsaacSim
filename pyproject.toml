@@ -16,12 +16,13 @@ dependencies = [
 
 [project.optional-dependencies]
 mirror = ["caproto>=1.1"]
-bluesky = ["ophyd>=1.9", "bluesky>=1.13"]
+bluesky = ["ophyd>=1.9", "bluesky>=1.13", "ipython>=8"]
 dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.5"]
 
 [project.scripts]
 isaac-epics-ioc = "isaac_epics.cli:main"
 isaac-epics-mirror = "isaac_epics.mirror:main"
+isaac-epics-console = "isaac_epics.console:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

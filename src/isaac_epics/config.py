@@ -97,6 +97,10 @@ class AxisConfig:
     Attributes:
         motor: PV name suffix.  Full PV is ``prefix + motor`` (e.g. ``m1``).
         joint: Joint name as Isaac Sim reports it (e.g. ``x_axis``).
+        alias: Short Python identifier for the interactive console, so that
+            ``%mov x 10`` works instead of ``%mov m1 10``.  Defaults to the
+            motor name.  Purely a convenience for humans -- it never appears
+            in a PV name.
         desc: ``.DESC``.
         egu: ``.EGU`` -- engineering units string shown to clients.
         sim_units_per_egu: Multiply engineering units by this to get
@@ -132,6 +136,7 @@ class AxisConfig:
 
     motor: str
     joint: str
+    alias: str = ""
     desc: str = ""
     egu: str = "mm"
     sim_units_per_egu: float = 1e-3
@@ -159,6 +164,11 @@ class AxisConfig:
             raise ConfigError(f"motor name {self.motor!r} must be non-empty and contain no '.'")
         if not self.joint:
             raise ConfigError(f"axis {self.motor!r}: 'joint' is required")
+        if self.alias and not self.alias.isidentifier():
+            raise ConfigError(
+                f"axis {self.motor!r}: alias {self.alias!r} must be a valid Python "
+                "identifier, since the console binds it as a variable name"
+            )
         if self.low_limit >= self.high_limit:
             raise ConfigError(
                 f"axis {self.motor!r}: low_limit {self.low_limit} must be below "
@@ -193,6 +203,11 @@ class AxisConfig:
     def dir_sign(self) -> int:
         """+1 for ``.DIR`` = Pos, -1 for Neg."""
         return 1 if self.direction == "Pos" else -1
+
+    @property
+    def console_name(self) -> str:
+        """The name this axis is bound to in the interactive console."""
+        return self.alias or self.motor
 
     def to_sim(self, egu_value: float) -> float:
         """Engineering units -> simulation units."""
@@ -266,6 +281,10 @@ class AdapterConfig:
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
             raise ConfigError(f"duplicate motor names: {sorted(dupes)}")
+        aliases = [a.console_name for a in self.axes]
+        dupe_aliases = {a for a in aliases if aliases.count(a) > 1}
+        if dupe_aliases:
+            raise ConfigError(f"duplicate console aliases: {sorted(dupe_aliases)}")
         joints = [a.joint for a in self.axes]
         dupe_joints = {j for j in joints if joints.count(j) > 1}
         if dupe_joints:
@@ -405,28 +424,29 @@ def default_config() -> AdapterConfig:
         prefix=os.environ.get("ISAAC_EPICS_PREFIX", "SIM:TWIN:"),
         axes=[
             AxisConfig(
-                motor="m1", joint="x_axis", desc="Sample X", egu="mm",
+                motor="m1", alias="x", joint="x_axis", desc="Sample X", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
                 accel_time=0.2, retry_deadband=0.02, precision=4,
                 settle_timeout=5.0, stall_time=0.3,
             ),
             AxisConfig(
-                motor="m2", joint="y_axis", desc="Sample Y", egu="mm",
+                motor="m2", alias="y", joint="y_axis", desc="Sample Y", egu="mm",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=-24.0, high_limit=24.0, velocity=5.0, max_velocity=20.0,
                 accel_time=0.2, retry_deadband=0.02, precision=4,
                 settle_timeout=5.0, stall_time=0.3,
             ),
             AxisConfig(
-                motor="m3", joint="z_axis", desc="Sample Z", egu="mm",
+                motor="m3", alias="z", joint="z_axis", egu="mm",
+                desc="Sample Z (vertical - carries gravity load)",
                 sim_units_per_egu=UNIT_PRESETS["mm"],
                 low_limit=1.0, high_limit=49.0, velocity=2.0, max_velocity=10.0,
                 accel_time=0.2, retry_deadband=0.25, precision=4,
                 settle_timeout=10.0, stall_time=0.3,
             ),
             AxisConfig(
-                motor="m4", joint="theta_axis", desc="Sample Theta", egu="deg",
+                motor="m4", alias="theta", joint="theta_axis", desc="Sample Theta", egu="deg",
                 # Runtime reports radians; the USD authors limits in degrees.
                 sim_units_per_egu=UNIT_PRESETS["deg"],
                 low_limit=-179.0, high_limit=179.0, velocity=30.0, max_velocity=90.0,

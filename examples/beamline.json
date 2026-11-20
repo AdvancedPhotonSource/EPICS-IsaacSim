@@ -12,6 +12,7 @@
     {
       "motor": "m1",
       "joint": "x_axis",
+      "alias": "x",
       "desc": "Sample X",
       "units": {
         "sim": "m",
@@ -30,6 +31,7 @@
     {
       "motor": "m2",
       "joint": "y_axis",
+      "alias": "y",
       "desc": "Sample Y",
       "units": {
         "sim": "m",
@@ -48,6 +50,7 @@
     {
       "motor": "m3",
       "joint": "z_axis",
+      "alias": "z",
       "desc": "Sample Z (vertical - carries gravity load)",
       "units": {
         "sim": "m",
@@ -66,6 +69,7 @@
     {
       "motor": "m4",
       "joint": "theta_axis",
+      "alias": "theta",
       "desc": "Sample Theta",
       "units": {
         "sim": "rad",

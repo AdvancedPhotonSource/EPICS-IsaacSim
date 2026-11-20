@@ -188,8 +188,29 @@ What none of this changes is **the physics**. This raises the fidelity of the
 IOC is still wrong — just more convincingly, because now it is wrong in response
 to real commands.
 
+## Interactive control
+
+No new command language -- Bluesky already ships the SPEC vocabulary, and the
+adapter serves ordinary motor records, so it works unmodified:
+
+```bash
+isaac-epics-console -c examples/beamline.json
+```
+```
+In [1]: %mov x 10          # mv
+In [2]: %mov x 5 theta 45  # several axes at once
+In [3]: %movr x -2         # mvr
+In [4]: %wa                # where-all
+In [5]: RE(bp.scan([], x, -10, 10, 11))
+```
+
+Phoebus works too: the stock synApps motor screens bind to `SIM:TWIN:m1`
+because the record is faithful. See [docs/console.md](docs/console.md), which
+also covers running a WebRTC viewer alongside the console.
+
 ## Documentation
 
+- [`docs/console.md`](docs/console.md) — interactive control and WebRTC streaming
 - [`docs/protocol.md`](docs/protocol.md) — the wire protocol
 - [`docs/motor-record.md`](docs/motor-record.md) — which fields are live, inert, or absent
 - [`docs/deployment.md`](docs/deployment.md) — running it at APS
