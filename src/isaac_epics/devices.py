@@ -56,6 +56,12 @@ def make_stage_class(config: AdapterConfig, name: str = "SimStage") -> type:
     for axis in config.axes:
         members[axis.console_name] = Cpt(
             EpicsMotor, axis.motor, kind="hinted",
+            # The "motors" label is what makes `%wa` find these. Bluesky's
+            # modern magics discover devices through ophyd labels rather than
+            # by scanning the namespace for anything that looks like a
+            # positioner, so an unlabelled motor is simply invisible to
+            # where-all -- it reports nothing and looks broken.
+            labels={"motors"},
             doc=f"{axis.desc or axis.motor} ({axis.egu}) -> joint {axis.joint}",
         )
     members["link"] = Cpt(

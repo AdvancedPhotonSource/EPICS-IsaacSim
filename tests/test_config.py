@@ -328,3 +328,19 @@ def test_live_feedback_passes_documents_through_when_healthy():
     cb("start", {})
     cb("event", {})
     assert seen == ["start", "event"]
+
+
+def test_motors_carry_the_label_that_makes_wa_find_them():
+    """`%wa` discovers devices through ophyd labels, not by duck-typing.
+
+    An unlabelled motor is invisible to where-all: it prints nothing and
+    looks broken rather than empty.
+    """
+    pytest.importorskip("ophyd")
+    from isaac_epics.devices import make_stage_class
+
+    cls = make_stage_class(default_config())
+    for axis in default_config().axes:
+        cpt = cls._sig_attrs[axis.console_name]
+        labels = cpt.kwargs.get("labels", set())
+        assert "motors" in labels, f"{axis.console_name} is not labelled 'motors'"
