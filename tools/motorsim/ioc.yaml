@@ -1,0 +1,45 @@
+# 8-axis simulated motor IOC — the reference implementation we validate against.
+#
+# This runs the GENUINE EPICS motorRecord (motor R7-4) on the motorSim asyn
+# driver: real trapezoidal acceleration profiles, real backlash, real retries,
+# real limit handling. It is the oracle in tools/motor_oracle.py.
+#
+# Axis layout is chosen to exercise one behaviour each, so a disagreement
+# points at a specific part of the state machine rather than "something is off".
+#
+#   M1  plain linear move
+#   M2  spare linear, same settings as M1 (control: two identical axes
+#       must agree with each other, which catches harness bugs)
+#   M3  slow acceleration — exposes ramp handling and .DMOV timing
+#   M4  rotary, degrees
+#   M5  positive backlash  (.BDST > 0)
+#   M6  negative backlash  (.BDST < 0)
+#   M7  tight deadband     — exposes retry behaviour
+#   M8  loose deadband     — settles immediately
+#
+# GOTCHA, verified against ibek-support: DHLM/DLLM here are passed BOTH to
+# motorSimConfigAxis as HARD limits in STEPS and to basic_asyn_motor.db as the
+# record's DIAL limits in EGU. With MRES < 1 the hard limit is always hit
+# first, so you get .HLS/.LLS rather than .LVIO. To test SOFT limit rejection,
+# the harness caputs .HLM/.LLM at runtime to bring the user limits inside the
+# hard ones. Do not try to express soft limits here.
+ioc_name: "{{ _global.get_env('IOC_NAME') }}"
+description: Reference motorRecord IOC for EPICS-IsaacSim adapter validation
+
+entities:
+  - type: motorSim.simMotorController
+    controllerName: oracle
+    P: "SIM:ORACLE:"
+    numAxes: 8
+
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 0, M: "M1", DESC: "plain linear",   home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 0 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 1, M: "M2", DESC: "plain linear 2", home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 0 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 2, M: "M3", DESC: "slow accel",     home: 0, EGU: mm,  VELO: 2,  VBAS: 0.1, ACCL: 2.0, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 0 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 3, M: "M4", DESC: "rotary",         home: 0, EGU: deg, VELO: 20, VBAS: 0.1, ACCL: 0.5, MRES: 0.0001, PREC: 5, DHLM: 2000000, DLLM: -2000000, BDST: 0 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 4, M: "M5", DESC: "backlash pos",   home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 1,  BVEL: 1, BACC: 0.5 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 5, M: "M6", DESC: "backlash neg",   home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: -1, BVEL: 1, BACC: 0.5 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 6, M: "M7", DESC: "tight deadband", home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 0 }
+  - { type: motorSim.simMotorAxis, controller: oracle, ADDR: 7, M: "M8", DESC: "loose deadband", home: 0, EGU: mm,  VELO: 10, VBAS: 0.1, ACCL: 0.5, MRES: 0.001,  PREC: 4, DHLM: 200000,  DLLM: -200000,  BDST: 0 }
+
+  - type: motor.motorUtil
+    P: "SIM:ORACLE:"
