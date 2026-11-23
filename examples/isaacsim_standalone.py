@@ -125,15 +125,51 @@ def log(payload):
     print("[epics-bridge] " + json.dumps(payload), flush=True)
 
 
-def describe_articulation(robot, prim, meters_per_unit):
+def discover_pv_bindings(usd_stage):
+    """Read `epics:motorPV` off every joint prim that declares one.
+
+    The model gets to say which PV drives it, instead of that living only in
+    a config file the asset knows nothing about.
+
+    Two details that are easy to get wrong and silent when wrong:
+
+    * Traverse with instance proxies. An instanced prim is invisible to a
+      plain Traverse(), so bindings on instanced joints would simply not be
+      found -- and no error would be raised, because finding nothing looks
+      exactly like declaring nothing. (Instanced prims cannot carry
+      per-instance attributes at all, which is a separate reason the CAD
+      conversion disables instancing.)
+    * Match on the prim NAME, because that is what the articulation reports
+      as its dof name. Prim paths differ; dof names are the join.
+    """
+    bindings = {}
+    try:
+        from pxr import Usd
+        predicate = Usd.TraverseInstanceProxies(Usd.PrimDefaultPredicate)
+        for prim in usd_stage.Traverse(predicate):
+            attr = prim.GetAttribute("epics:motorPV")
+            if attr and attr.HasAuthoredValue():
+                value = attr.Get()
+                if value:
+                    bindings[prim.GetName()] = str(value)
+    except Exception as exc:  # noqa: BLE001 - bindings are optional
+        log({"event": "pv_binding_scan_failed", "error": str(exc)})
+    return bindings
+
+
+def describe_articulation(robot, prim, meters_per_unit, bindings=None):
     """Build the descriptor the adapter checks its configuration against."""
     lower, upper = robot.get_dof_limits()
     lower, upper = lower.numpy()[0], upper.numpy()[0]
     types = joint_types(robot)
+    bindings = bindings or {}
     joints = []
     for i, name in enumerate(robot.dof_names):
-        joints.append({"name": name, "type": types.get(name, "unknown"),
-                       "lower": float(lower[i]), "upper": float(upper[i])})
+        entry = {"name": name, "type": types.get(name, "unknown"),
+                 "lower": float(lower[i]), "upper": float(upper[i])}
+        if name in bindings:
+            entry["motor_pv"] = bindings[name]
+        joints.append(entry)
     return {"prim": str(prim), "meters_per_unit": float(meters_per_unit),
             "joints": joints}
 
@@ -309,7 +345,10 @@ def main():
     index = {name: i for i, name in enumerate(dof_names)}
 
     meters_per_unit = stage_meters_per_unit(usd_stage)
-    descriptor = describe_articulation(robot, prim_path, meters_per_unit)
+    bindings = discover_pv_bindings(usd_stage)
+    if bindings:
+        log({"event": "pv_bindings", "declared": bindings})
+    descriptor = describe_articulation(robot, prim_path, meters_per_unit, bindings)
     log({"event": "articulation", "dofs": dof_names, "num_dofs": robot.num_dofs,
          "prim": str(prim_path), "meters_per_unit": meters_per_unit})
 

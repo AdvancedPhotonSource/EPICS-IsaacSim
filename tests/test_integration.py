@@ -7,6 +7,7 @@ this project exists to get right.
 """
 
 import json
+import math
 import os
 import sys
 import time
@@ -309,3 +310,104 @@ def test_matching_config_produces_no_findings():
         JointInfo("theta_axis", "revolute", -math.pi, math.pi),
     ))
     assert check(default_config(), art) == []
+
+
+def test_declared_pv_binding_rides_the_existing_descriptor():
+    """A joint's epics:motorPV reaches the adapter over the normal protocol."""
+    from isaac_epics.protocol import Articulation
+
+    art = Articulation.from_json({
+        "prim": "/World/cradle",
+        "meters_per_unit": 1.0,
+        "joints": [
+            {"name": "chi_axis", "type": "revolute", "lower": -1.7, "upper": 1.7,
+             "motor_pv": "SIM:CRADLE:m1"},
+            {"name": "phi_axis", "type": "revolute", "lower": -3.1, "upper": 3.1},
+        ],
+    })
+    assert art.joints[0].motor_pv == "SIM:CRADLE:m1"
+    assert art.joints[1].motor_pv is None, "a joint may decline to declare one"
+
+
+def test_a_binding_that_disagrees_with_the_config_is_an_error():
+    """The point of putting the binding in the model is catching this.
+
+    Two statements of the same fact -- one in the asset, one in the config --
+    can disagree. A joint name typed into a config is an agreement nobody
+    re-reads; a declared binding is checked on the first frame of every run.
+    """
+    from isaac_epics.protocol import Articulation
+    from isaac_epics.validate import check, errors
+
+    config = AdapterConfig(
+        prefix="SIM:CRADLE:",
+        axes=[AxisConfig(motor="m7", joint="chi_axis", low_limit=-90, high_limit=90)],
+    )
+    art = Articulation.from_json({
+        "prim": "/World/cradle", "meters_per_unit": 1.0,
+        "joints": [{"name": "chi_axis", "type": "revolute",
+                    "lower": -1.75, "upper": 1.75, "motor_pv": "SIM:CRADLE:m1"}],
+    })
+    bad = errors(check(config, art))
+    assert any("SIM:CRADLE:m1" in f.message and "SIM:CRADLE:m7" in f.message
+               for f in bad), f"the mismatch was not reported: {bad}"
+
+
+def test_a_binding_for_a_joint_nobody_drives_is_a_warning():
+    from isaac_epics.protocol import Articulation
+    from isaac_epics.validate import check
+
+    config = AdapterConfig(
+        prefix="SIM:CRADLE:",
+        axes=[AxisConfig(motor="m1", joint="chi_axis", low_limit=-90, high_limit=90)],
+    )
+    art = Articulation.from_json({
+        "prim": "/World/cradle", "meters_per_unit": 1.0,
+        "joints": [
+            {"name": "chi_axis", "type": "revolute", "lower": -1.75, "upper": 1.75,
+             "motor_pv": "SIM:CRADLE:m1"},
+            {"name": "phi_axis", "type": "revolute", "lower": -3.1, "upper": 3.1,
+             "motor_pv": "SIM:CRADLE:m2"},
+        ],
+    })
+    findings = check(config, art)
+    assert any("phi_axis" in f.message and "SIM:CRADLE:m2" in f.message
+               for f in findings)
+
+
+def test_matching_bindings_produce_no_findings():
+    """A model and a config that agree must stay silent."""
+    from isaac_epics.protocol import Articulation
+    from isaac_epics.validate import check
+
+    config = AdapterConfig(
+        prefix="SIM:CRADLE:",
+        axes=[AxisConfig(motor="m1", joint="chi_axis",
+                         low_limit=-90, high_limit=90, egu="deg",
+                         sim_units_per_egu=math.pi / 180.0)],
+    )
+    art = Articulation.from_json({
+        "prim": "/World/cradle", "meters_per_unit": 1.0,
+        "joints": [{"name": "chi_axis", "type": "revolute",
+                    "lower": -1.8, "upper": 1.8, "motor_pv": "SIM:CRADLE:m1"}],
+    })
+    assert check(config, art) == []
+
+
+def test_a_stage_with_no_bindings_is_not_nagged_about_it():
+    """Every stage authored before this existed declares nothing."""
+    from isaac_epics.protocol import Articulation
+    from isaac_epics.validate import check
+
+    config = AdapterConfig(
+        prefix="SIM:CRADLE:",
+        axes=[AxisConfig(motor="m1", joint="chi_axis",
+                         low_limit=-90, high_limit=90, egu="deg",
+                         sim_units_per_egu=math.pi / 180.0)],
+    )
+    art = Articulation.from_json({
+        "prim": "/World/cradle", "meters_per_unit": 1.0,
+        "joints": [{"name": "chi_axis", "type": "revolute",
+                    "lower": -1.8, "upper": 1.8}],
+    })
+    assert check(config, art) == []

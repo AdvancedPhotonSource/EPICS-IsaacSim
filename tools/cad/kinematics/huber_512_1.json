@@ -9,14 +9,28 @@
     "axes": "INFERRED from the drawing and the body extents. The chi ring spans X and Y equally and stands vertical, so chi rotates about Z. Check against the model before trusting it.",
     "mass_split": "ESTIMATED. Only the 80 kg total is known; the split across bodies is a guess weighted by size.",
     "limits": "ESTIMATED. 'ohne Gegenlager' (no counter-bearing) implies a restricted chi range; the drawing annotates 120 deg in the plan view. Z travel is a guess.",
-    "drive_gains": "ESTIMATED. Stiffness and damping are not derivable from a drawing. They determine the steady-state error, so the retry deadbands MUST be measured on the running model -- see docs/byo-model.md."
+    "drive_gains": "ESTIMATED. Stiffness and damping are not derivable from a drawing. They determine the steady-state error, so the retry deadbands MUST be measured on the running model -- see docs/byo-model.md.",
+    "pv_bindings": "DECLARED. Each joint names the PV it expects to be driven by, authored onto the joint prim as epics:motorPV. The adapter checks its own config against these on the first frame, so the model and the config cannot silently disagree."
   },
   "root_body": "BASE",
   "bodies": [
-    {"match": "BASE",      "mass": 50.0, "static": true},
-    {"match": "CHI_PHI",   "mass": 20.0},
-    {"match": "PHI_PLATE", "mass": 8.0},
-    {"match": "Z",         "mass": 2.0}
+    {
+      "match": "BASE",
+      "mass": 50.0,
+      "static": true
+    },
+    {
+      "match": "CHI_PHI",
+      "mass": 20.0
+    },
+    {
+      "match": "PHI_PLATE",
+      "mass": 8.0
+    },
+    {
+      "match": "Z",
+      "mass": 2.0
+    }
   ],
   "joints": [
     {
@@ -25,11 +39,20 @@
       "parent": "BASE",
       "child": "CHI_PHI",
       "axis": "Z",
-      "pivot": [0.0001, 0.29, 0.0345],
+      "pivot": [
+        0.0001,
+        0.29,
+        0.0345
+      ],
       "lower": -100.0,
       "upper": 100.0,
       "_units": "degrees, as UsdPhysics requires for revolute limits and drive targets",
-      "drive": {"stiffness": 200000.0, "damping": 20000.0, "max_force": 2000.0}
+      "drive": {
+        "stiffness": 200000.0,
+        "damping": 20000.0,
+        "max_force": 2000.0
+      },
+      "pv": "SIM:CRADLE:m1"
     },
     {
       "name": "phi_axis",
@@ -37,10 +60,19 @@
       "parent": "CHI_PHI",
       "child": "PHI_PLATE",
       "axis": "Y",
-      "pivot": [0.0, 0.1035, 0.0635],
+      "pivot": [
+        0.0,
+        0.1035,
+        0.0635
+      ],
       "lower": -180.0,
       "upper": 180.0,
-      "drive": {"stiffness": 80000.0, "damping": 8000.0, "max_force": 800.0}
+      "drive": {
+        "stiffness": 80000.0,
+        "damping": 8000.0,
+        "max_force": 800.0
+      },
+      "pv": "SIM:CRADLE:m2"
     },
     {
       "name": "z_axis",
@@ -48,11 +80,20 @@
       "parent": "PHI_PLATE",
       "child": "Z",
       "axis": "Y",
-      "pivot": [0.0, 0.142, 0.0635],
+      "pivot": [
+        0.0,
+        0.142,
+        0.0635
+      ],
       "lower": -0.01,
       "upper": 0.01,
       "_units": "metres for prismatic limits and drive targets",
-      "drive": {"stiffness": 300000.0, "damping": 30000.0, "max_force": 500.0}
+      "drive": {
+        "stiffness": 300000.0,
+        "damping": 30000.0,
+        "max_force": 500.0
+      },
+      "pv": "SIM:CRADLE:m3"
     }
   ]
 }

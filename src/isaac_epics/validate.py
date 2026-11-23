@@ -44,6 +44,45 @@ class Finding:
         return f"{self.severity.upper()}: {where}{self.message}"
 
 
+def _check_declared_bindings(config: AdapterConfig, articulation: Articulation,
+                             findings: List[Finding]) -> None:
+    """Compare PV bindings the MODEL declares against what the config serves.
+
+    A joint prim may carry ``epics:motorPV``, naming the PV it expects to be
+    driven by. When it does, there are two statements of the same fact -- one
+    in the asset, one in the config -- and they can disagree. Saying so is the
+    whole value of putting the binding in the model: a joint name typed into
+    a config file is an agreement nobody re-reads, while a declared binding
+    is checked on the first frame of every run.
+
+    A stage that declares nothing is not a problem and is not reported; that
+    is every stage authored before this existed.
+    """
+    declared = {j.name: j.motor_pv for j in articulation.joints if j.motor_pv}
+    if not declared:
+        return
+
+    served = {axis.joint: config.prefix + axis.motor for axis in config.axes}
+
+    for joint, want_pv in sorted(declared.items()):
+        have_pv = served.get(joint)
+        if have_pv is None:
+            findings.append(Finding(
+                "warning", "",
+                f"the model declares joint {joint!r} should be driven by "
+                f"{want_pv!r}, but no configured axis drives that joint. "
+                f"The asset expects a motor this adapter is not serving."
+            ))
+        elif have_pv != want_pv:
+            findings.append(Finding(
+                "error", "",
+                f"joint {joint!r} is declared in the model as {want_pv!r} but "
+                f"is served here as {have_pv!r}. One of the two is wrong, and "
+                f"a scan written against the declared name would drive "
+                f"nothing while every PV looked healthy."
+            ))
+
+
 def check(config: AdapterConfig, articulation: Optional[Articulation]) -> List[Finding]:
     """Compare ``config`` against what the simulation reports.
 
@@ -136,6 +175,8 @@ def check(config: AdapterConfig, articulation: Optional[Articulation]) -> List[F
             f"the articulation has joints no motor drives: {', '.join(unused)}. "
             f"They will hold their position.",
         ))
+
+    _check_declared_bindings(config, articulation, findings)
 
     order = {"error": 0, "warning": 1}
     return sorted(findings, key=lambda f: order.get(f.severity, 2))

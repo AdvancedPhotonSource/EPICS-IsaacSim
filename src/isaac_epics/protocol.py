@@ -63,6 +63,16 @@ class JointInfo:
     joint_type: str = "unknown"      # prismatic / revolute / unknown
     lower: Optional[float] = None    # simulation units
     upper: Optional[float] = None
+    #: PV this joint declares itself bound to, read from an ``epics:motorPV``
+    #: attribute on the joint prim in USD. Optional: a stage that carries no
+    #: bindings simply does not set it, and the adapter falls back to the
+    #: joint names in its own configuration, as before.
+    #:
+    #: When it IS set, the model is the source of truth. A hand-typed joint
+    #: name in a config file is an agreement between two files that nobody
+    #: re-checks; a binding authored next to the joint it names travels with
+    #: the asset and cannot drift away from it.
+    motor_pv: Optional[str] = None
 
     @staticmethod
     def from_json(obj: Any) -> "JointInfo":
@@ -70,11 +80,15 @@ class JointInfo:
             raise ProtocolError("each joint descriptor needs a string 'name'")
         lower = obj.get("lower")
         upper = obj.get("upper")
+        motor_pv = obj.get("motor_pv")
+        if motor_pv is not None and not isinstance(motor_pv, str):
+            raise ProtocolError("'motor_pv' must be a string when present")
         return JointInfo(
             name=obj["name"],
             joint_type=str(obj.get("type", "unknown")),
             lower=None if lower is None else _finite_float(lower, "joint lower"),
             upper=None if upper is None else _finite_float(upper, "joint upper"),
+            motor_pv=motor_pv,
         )
 
 

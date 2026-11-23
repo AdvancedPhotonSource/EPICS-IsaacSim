@@ -103,7 +103,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     _bootstrap_pxr()
-    from pxr import Gf, Usd, UsdGeom, UsdPhysics
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 
     with open(args.kinematics) as handle:
         spec = json.load(handle)
@@ -206,9 +206,30 @@ def main(argv=None):
         drive.CreateMaxForceAttr(float(gains["max_force"]))
         drive.CreateTargetPositionAttr(0.0)
 
+        # Let the joint declare the PV it expects to be driven by.
+        #
+        # A plain namespaced custom attribute, not customData and not a
+        # codeless applied schema. The namespace follows first-party
+        # precedent -- Isaac Sim's own Robot Schema puts isaac:-namespaced
+        # attributes on joint prims the same way. customData would be the
+        # wrong vehicle: the colon in a key is a dictionary path separator,
+        # so what SetCustomData writes flat, GetCustomDataByKey cannot read
+        # back. An applied schema can come later without renaming anything,
+        # because the attribute name is the contract and it is unchanged
+        # whether or not a schema declares it.
+        #
+        # uniform: this is configuration, not animation.
+        pv = spec_joint.get("pv")
+        if pv:
+            attr = joint.GetPrim().CreateAttribute(
+                "epics:motorPV", Sdf.ValueTypeNames.String,
+                custom=True, variability=Sdf.VariabilityUniform)
+            attr.Set(pv)
+
         unit = "deg" if spec_joint["type"] == "revolute" else "m"
         print(f"  joint {name:<10} {spec_joint['type']:<9} axis {spec_joint['axis']}  "
-              f"limits {spec_joint['lower']}..{spec_joint['upper']} {unit}")
+              f"limits {spec_joint['lower']}..{spec_joint['upper']} {unit}"
+              f"{'  -> ' + pv if pv else ''}")
 
     stage.GetRootLayer().Save()
     print(f"\nwrote {args.out}")
