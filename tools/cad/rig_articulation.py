@@ -88,6 +88,18 @@ def main(argv=None):
     parser.add_argument("--cad", required=True, help="Converted CAD USD (read only)")
     parser.add_argument("--kinematics", required=True, help="Kinematics JSON")
     parser.add_argument("--out", required=True, help="Rigged layer to write")
+    parser.add_argument(
+        "--collision", action="store_true",
+        help="Also apply CollisionAPI to each body. OFF by default, and the "
+             "default is the considered one: PhysX approximates a collider as "
+             "a CONVEX HULL, and the convex hull of a ring is a solid disc. On "
+             "this cradle the chi ring's hull swallows the phi box and the Z "
+             "slide whole, so every link starts deeply interpenetrating and the "
+             "solver locks the articulation rigid -- it looks like dead drives "
+             "rather than a collision problem. A joint-driven twin does not "
+             "need link-to-link collision at all. Turn this on only with a "
+             "proper convex decomposition, and only if you need collision "
+             "checking rather than motion.")
     args = parser.parse_args(argv)
 
     _bootstrap_pxr()
@@ -137,11 +149,13 @@ def main(argv=None):
         prim = find_body(stage, body["match"])
         bodies[body["match"]] = prim
         UsdPhysics.RigidBodyAPI.Apply(prim)
-        UsdPhysics.CollisionAPI.Apply(prim)
+        if args.collision:
+            UsdPhysics.CollisionAPI.Apply(prim)
         mass_api = UsdPhysics.MassAPI.Apply(prim)
         mass_api.CreateMassAttr(float(body["mass"]))
         masses[body["match"]] = float(body["mass"])
-        print(f"  body  {body['match']:<10} {prim.GetPath()}  mass {body['mass']} kg")
+        print(f"  body  {body['match']:<10} mass {body['mass']} kg"
+              f"{'  +collision' if args.collision else ''}")
 
     # Pin the base to the world, otherwise the articulation is free-floating
     # and the whole cradle falls under gravity the moment physics starts.
