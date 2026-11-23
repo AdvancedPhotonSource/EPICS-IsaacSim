@@ -32,7 +32,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .config import UNIT_PRESETS, ConfigError, load_config_json
 from .plant import SharedPlant
@@ -111,6 +111,16 @@ class Mirror:
         self._last_update: Dict[str, float] = {}
         self._last_value: Dict[str, float] = {}
         self._subscriptions: List[object] = []
+        # Strong references to the subscription callbacks.
+        #
+        # caproto's threading client stores callbacks under weakref.ref (see
+        # CallbackHandler.add_callback). A closure passed straight into
+        # add_callback has no other referent, so CPython collects it before
+        # the first monitor arrives and the subscription silently delivers
+        # nothing -- it connects, reports healthy, and never fires. In mirror
+        # mode that failure is indistinguishable from a beamline that is not
+        # moving, which is the worst shape a bug can take here.
+        self._callbacks: List[Callable] = []
         self._context = None
 
     def start(self) -> None:
@@ -123,7 +133,11 @@ class Mirror:
         channels = self._context.get_pvs(*names)
         for mapping, channel in zip(self.mappings, channels):
             subscription = channel.subscribe(data_type="time")
-            subscription.add_callback(self._make_callback(mapping))
+            callback = self._make_callback(mapping)
+            # Hold the callback alive for the life of the Mirror; caproto will
+            # not. See the note in __init__.
+            self._callbacks.append(callback)
+            subscription.add_callback(callback)
             self._subscriptions.append(subscription)
 
     def _make_callback(self, mapping: MirrorMapping):
@@ -167,6 +181,7 @@ class Mirror:
             except Exception:  # noqa: BLE001
                 pass
         self._subscriptions.clear()
+        self._callbacks.clear()
         if self._context is not None:
             try:
                 self._context.disconnect()

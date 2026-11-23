@@ -106,3 +106,72 @@ def test_load_mappings_from_file(tmp_path):
     mappings = load_mappings(str(path))
     assert len(mappings) == 1
     assert mappings[0].to_sim(1.0) == pytest.approx(1e-3)
+
+
+def test_subscription_callbacks_survive_garbage_collection():
+    """caproto holds subscription callbacks weakly; the Mirror must not.
+
+    ``caproto.threading.client.CallbackHandler.add_callback`` stores the
+    callback under ``weakref.ref``. A closure handed straight to it is
+    collected before the first monitor arrives, so the subscription connects,
+    reports healthy and delivers nothing -- which in mirror mode looks exactly
+    like a beamline that is not moving. This reproduces that through the same
+    path caproto uses.
+    """
+    import gc
+    import weakref
+
+    class FakeSubscription:
+        """Stores callbacks weakly, exactly as caproto does."""
+
+        def __init__(self):
+            self.refs = []
+
+        def add_callback(self, func):
+            self.refs.append(weakref.ref(func))
+
+        def clear(self):
+            pass
+
+        def alive(self):
+            return [ref for ref in self.refs if ref() is not None]
+
+    subscription = FakeSubscription()
+
+    class FakeChannel:
+        def subscribe(self, **kwargs):
+            return subscription
+
+    class FakeContext:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_pvs(self, *names):
+            return [FakeChannel() for _ in names]
+
+        def disconnect(self):
+            pass
+
+    plant = SharedPlant()
+    mirror = Mirror([MirrorMapping(pv="SIM:REAL:m1.RBV", joint="x_axis")], plant)
+
+    import caproto.threading.client as ca_client
+
+    original = ca_client.Context
+    ca_client.Context = FakeContext
+    try:
+        mirror.start()
+    finally:
+        ca_client.Context = original
+
+    gc.collect()
+    assert subscription.alive(), (
+        "the subscription callback was garbage collected; caproto stores it "
+        "weakly, so the Mirror must keep a strong reference or it will never "
+        "receive a single readback"
+    )
+
+    # And the surviving callback must still drive the joint.
+    callback = subscription.alive()[0]()
+    callback(None, type("Response", (), {"data": [12.0]})())
+    assert plant.targets["x_axis"] == pytest.approx(0.012)
