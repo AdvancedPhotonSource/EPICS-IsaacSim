@@ -438,3 +438,32 @@ def test_spec_aliases_survive_a_shell_without_magics():
     from isaac_epics.console import install_spec_aliases
 
     assert install_spec_aliases(object()) == []
+
+
+def test_underscore_prefixed_axis_keys_are_annotations():
+    """A config must be able to record why a value is what it is.
+
+    Strict key validation is what catches a typo -- a misspelled
+    "retry_deadbad" silently doing nothing is the shape of failure this
+    project exists to refuse -- but with no room for comments, the reasoning
+    behind a measured value lives nowhere and the next person tidies it back
+    into a guess. Underscore-prefixed keys are dropped, matching the
+    convention already used by the mechanism tables in tools/cad/kinematics.
+    """
+    axis = AxisConfig.from_dict({
+        "motor": "m1",
+        "joint": "chi_axis",
+        "retry_deadband": 0.01,
+        "_deadband_basis": "measured 0.0013 deg on the running articulation",
+        "_anything_else": {"nested": True},
+    })
+    assert axis.motor == "m1"
+    assert axis.retry_deadband == pytest.approx(0.01)
+
+
+def test_a_typo_is_still_rejected_and_says_how_to_comment():
+    """The annotation escape hatch must not weaken typo detection."""
+    with pytest.raises(ConfigError) as excinfo:
+        AxisConfig.from_dict({"motor": "m1", "joint": "x", "retry_deadbad": 0.01})
+    assert "retry_deadbad" in str(excinfo.value)
+    assert "_" in str(excinfo.value)

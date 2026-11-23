@@ -233,10 +233,22 @@ class AxisConfig:
                     )
             data["sim_units_per_egu"] = UNIT_PRESETS[egu_name] / UNIT_PRESETS[sim_name]
             data.setdefault("egu", egu_name)
+        # Keys beginning with an underscore are free-form annotation and are
+        # dropped. Strict validation on everything else is what catches a
+        # typo'd field name -- "retry_deadbad" silently doing nothing is
+        # exactly the failure this project refuses -- but there has to be
+        # somewhere to record WHY a value is what it is. A measured deadband
+        # whose provenance is lost gets "tidied" back to a guess by the next
+        # person. The convention matches the mechanism tables in
+        # tools/cad/kinematics, which carry _provenance and _units.
+        data = {k: v for k, v in data.items() if not k.startswith("_")}
         known = {f for f in AxisConfig.__dataclass_fields__}
         unknown = set(data) - known
         if unknown:
-            raise ConfigError(f"unknown axis keys: {sorted(unknown)}")
+            raise ConfigError(
+                f"unknown axis keys: {sorted(unknown)}. Prefix a key with "
+                f"'_' if it is meant as a comment."
+            )
         return AxisConfig(**data)
 
 

@@ -1,5 +1,5 @@
 {
-  "comment": "Huber Eulerwiege 512.1 Eulerian cradle, real vendor CAD rigged by tools/cad/rig_articulation.py. Joint names come from the live articulation (isaacsim_probe.py reports chi_axis, phi_axis, z_axis). Soft limits sit INSIDE the physical joint limits authored in tools/cad/kinematics/huber_512_1.json (chi +/-100 deg, phi +/-180 deg, z +/-10 mm). retry_deadband values are PLACEHOLDERS until measured on the running model -- the drive gains they depend on are estimates, so the residual error cannot be derived. See docs/byo-model.md step 3.",
+  "comment": "Huber Eulerwiege 512.1 Eulerian cradle, real vendor CAD rigged by tools/cad/rig_articulation.py. Joint names come from the live articulation. Soft limits sit INSIDE the physical joint limits in tools/cad/kinematics/huber_512_1.json (chi +/-100 deg, phi +/-180 deg, z +/-10 mm). retry_deadband values are MEASURED on the running model, at roughly 5x the settled residual error: chi 0.0013 deg, phi 0.0026 deg, z 0.00018 mm, each measured once at mid-travel. The drive gains they depend on are still estimates, so re-measure after changing a mass or a gain -- and note these were taken at a single position, where the ring is close to balanced about its own axis. An axis carrying a gravity load off-axis will rest further short.",
   "prefix": "SIM:CRADLE:",
   "bind": {
     "http_host": "127.0.0.1",
@@ -14,48 +14,60 @@
       "joint": "chi_axis",
       "alias": "chi",
       "desc": "Chi circle",
-      "units": {"sim": "rad", "egu": "deg"},
+      "units": {
+        "sim": "rad",
+        "egu": "deg"
+      },
       "low_limit": -98.0,
       "high_limit": 98.0,
       "velocity": 20.0,
       "max_velocity": 60.0,
       "accel_time": 0.5,
-      "retry_deadband": 0.05,
+      "retry_deadband": 0.01,
       "precision": 4,
       "settle_timeout": 8.0,
-      "stall_time": 0.5
+      "stall_time": 0.5,
+      "_deadband_basis": "chi 0.0013 deg measured"
     },
     {
       "motor": "m2",
       "joint": "phi_axis",
       "alias": "phi",
       "desc": "Phi rotation",
-      "units": {"sim": "rad", "egu": "deg"},
+      "units": {
+        "sim": "rad",
+        "egu": "deg"
+      },
       "low_limit": -178.0,
       "high_limit": 178.0,
       "velocity": 30.0,
       "max_velocity": 90.0,
       "accel_time": 0.5,
-      "retry_deadband": 0.05,
+      "retry_deadband": 0.02,
       "precision": 4,
       "settle_timeout": 8.0,
-      "stall_time": 0.5
+      "stall_time": 0.5,
+      "_deadband_basis": "phi 0.0026 deg measured"
     },
     {
       "motor": "m3",
       "joint": "z_axis",
       "alias": "z",
       "desc": "Z adjustment",
-      "units": {"sim": "m", "egu": "mm"},
+      "units": {
+        "sim": "m",
+        "egu": "mm"
+      },
       "low_limit": -9.8,
       "high_limit": 9.8,
       "velocity": 2.0,
       "max_velocity": 5.0,
       "accel_time": 0.5,
-      "retry_deadband": 0.02,
+      "retry_deadband": 0.002,
       "precision": 4,
       "settle_timeout": 8.0,
-      "stall_time": 0.5
+      "stall_time": 0.5,
+      "_deadband_basis": "z 0.00018 mm measured"
     }
   ]
 }
