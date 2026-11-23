@@ -2,10 +2,17 @@
 
 An EPICS adapter layer for NVIDIA Isaac Sim digital twins, built for APS beamlines.
 
-It serves an Isaac Sim articulation to the control system as ordinary **motor
-records**, so existing scan code, ophyd device definitions and Phoebus screens
-drive the twin unmodified. You run the actual scan file against the actual
-device definitions; the twin stands in for the hardware, not for the experiment.
+It connects an Isaac Sim articulation to EPICS, in either direction:
+
+- **The twin stands in for hardware.** It is served to the control system as
+  ordinary **motor records**, so existing scan code, ophyd device definitions
+  and Phoebus screens drive it unmodified. You run the actual scan file against
+  the actual device definitions; the twin stands in for the hardware, not for
+  the experiment.
+- **The twin displays real hardware.** [Mirror mode](docs/mirror.md) drives the
+  articulation from a real beamline's readbacks, read-only, so a 3D model moves
+  because the instrument is moving. Far less setup than the above — three
+  config fields per joint, no motor records, no deadbands to measure.
 
 > **This serves simulated motors.** Channel Access binds to loopback and the PV
 > prefix defaults to `SIM:TWIN:`. See [Safety](#safety) before changing either.
@@ -94,7 +101,32 @@ the physical joint limits, a stage authored at the wrong scale — and logs ever
 finding, also publishing the verdict on `CFGOK` / `CFGMSG`. Findings are not
 fatal: bringing up a new model is when you most need the PVs to diagnose it.
 
+## Watching real hardware instead
+
+Mirror mode is the other direction: real PVs in, joint motion out, read-only.
+It never writes to a PV, and a test enforces that statically.
+
+```bash
+python examples/mirror_demo.py
+```
+
+That runs the whole chain on loopback in about thirty seconds with no beamline,
+no GPU and no Isaac Sim: a stand-in beamline IOC, real mirror mode against it
+over real Channel Access, a stand-in for Isaac Sim, and a demonstration that
+killing the source marks every channel stale rather than leaving the model
+frozen and silent. Then:
+
+```bash
+isaac-epics-mirror -c mirror.json
+```
+
+See [docs/mirror.md](docs/mirror.md). The configuration is three fields per
+joint, and none of the deadband, velocity or soft-limit work below applies.
+
 ## Configuration
+
+This section is for serving the twin *as* hardware. For mirror mode, see
+above — it needs almost none of it.
 
 One JSON file per instrument, one entry per axis:
 
@@ -218,6 +250,7 @@ Reasoning for each is recorded in §7 of
 
 ## Documentation
 
+- [`docs/mirror.md`](docs/mirror.md) — driving the model from live PVs (visualisation)
 - [`docs/byo-model.md`](docs/byo-model.md) — using your own CAD or USD model
 - [`docs/console.md`](docs/console.md) — interactive control and WebRTC streaming
 - [`docs/protocol.md`](docs/protocol.md) — the wire protocol
