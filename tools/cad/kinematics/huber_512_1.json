@@ -1,0 +1,58 @@
+{
+  "name": "huber_512_1_eulerian_cradle",
+  "_source": "Huber Eulerwiege 512.1, 'Phibox + Z-Verst. ohne Gegenlager', drawing 202401 / Teilestamm-ID 45166, revision C.",
+  "_provenance": {
+    "geometry": "REAL. Huber STEP, converted by tools/cad/convert_step.sh.",
+    "total_mass_kg": "REAL. The drawing states Ft.-Gew. 80 kg.",
+    "frame": "REAL, measured. The CAD is Y-UP: the BASE body's Y extent is 0.579 m and the drawing's overall height is 581.5 mm. The instrument calls its vertical travel 'Z' while the CAD's vertical axis is Y, which is why the body named Z is elongated in Y.",
+    "pivots": "MEASURED from world bounds of each body (tools/cad/usd_structure.py).",
+    "axes": "INFERRED from the drawing and the body extents. The chi ring spans X and Y equally and stands vertical, so chi rotates about Z. Check against the model before trusting it.",
+    "mass_split": "ESTIMATED. Only the 80 kg total is known; the split across bodies is a guess weighted by size.",
+    "limits": "ESTIMATED. 'ohne Gegenlager' (no counter-bearing) implies a restricted chi range; the drawing annotates 120 deg in the plan view. Z travel is a guess.",
+    "drive_gains": "ESTIMATED. Stiffness and damping are not derivable from a drawing. They determine the steady-state error, so the retry deadbands MUST be measured on the running model -- see docs/byo-model.md."
+  },
+  "root_body": "BASE",
+  "bodies": [
+    {"match": "BASE",      "mass": 50.0, "static": true},
+    {"match": "CHI_PHI",   "mass": 20.0},
+    {"match": "PHI_PLATE", "mass": 8.0},
+    {"match": "Z",         "mass": 2.0}
+  ],
+  "joints": [
+    {
+      "name": "chi_axis",
+      "type": "revolute",
+      "parent": "BASE",
+      "child": "CHI_PHI",
+      "axis": "Z",
+      "pivot": [0.0001, 0.29, 0.0345],
+      "lower": -100.0,
+      "upper": 100.0,
+      "_units": "degrees, as UsdPhysics requires for revolute limits and drive targets",
+      "drive": {"stiffness": 200000.0, "damping": 20000.0, "max_force": 2000.0}
+    },
+    {
+      "name": "phi_axis",
+      "type": "revolute",
+      "parent": "CHI_PHI",
+      "child": "PHI_PLATE",
+      "axis": "Y",
+      "pivot": [0.0, 0.1035, 0.0635],
+      "lower": -180.0,
+      "upper": 180.0,
+      "drive": {"stiffness": 80000.0, "damping": 8000.0, "max_force": 800.0}
+    },
+    {
+      "name": "z_axis",
+      "type": "prismatic",
+      "parent": "PHI_PLATE",
+      "child": "Z",
+      "axis": "Y",
+      "pivot": [0.0, 0.142, 0.0635],
+      "lower": -0.01,
+      "upper": 0.01,
+      "_units": "metres for prismatic limits and drive targets",
+      "drive": {"stiffness": 300000.0, "damping": 30000.0, "max_force": 500.0}
+    }
+  ]
+}

@@ -124,15 +124,31 @@ def main(argv):
 
     missing = []
     if expected:
-        print("  expected bodies")
-        names = {str(p.GetPath()).lower(): str(p.GetPath()) for p in all_prims}
+        # World-space bounds of each named body. Joint pivots and axes have
+        # to come from the geometry rather than from a guess: the axis of a
+        # rotation stage is the axis its body is symmetric about, and the
+        # pivot sits at that body's centre, neither of which is knowable
+        # from the part name.
+        cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(),
+                                  [UsdGeom.Tokens.default_, UsdGeom.Tokens.render])
+        print("  expected bodies (world bounds, metres)")
+        names = {str(p.GetPath()).lower(): p for p in all_prims}
         for want in expected:
-            hit = next((full for low, full in names.items() if want in low), None)
-            if hit:
-                print(f"      {want:<12} -> {hit}")
-            else:
-                print(f"      {want:<12} -> *** NOT FOUND ***")
+            hit = next((prim for low, prim in names.items() if want in low), None)
+            if hit is None:
+                print(f"      {want:<12} *** NOT FOUND ***")
                 missing.append(want)
+                continue
+            try:
+                box = cache.ComputeWorldBound(hit).ComputeAlignedRange()
+                lo, hi = box.GetMin(), box.GetMax()
+                size = [round(hi[i] - lo[i], 4) for i in range(3)]
+                mid = [round((hi[i] + lo[i]) / 2.0, 4) for i in range(3)]
+                print(f"      {want:<12} size {size}  centre {mid}")
+                print(f"      {'':<12} {hit.GetPath()}")
+            except Exception as exc:  # noqa: BLE001 - bounds are advisory
+                print(f"      {want:<12} (bounds unavailable: {exc})")
+                print(f"      {'':<12} {hit.GetPath()}")
 
     ok = abs(mpu - 1.0) < 1e-9 and len(visible_meshes) == len(meshes) and not missing
     print(f"  => {'RIGGABLE' if ok else 'NOT READY - see the marked lines above'}")

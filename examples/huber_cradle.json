@@ -1,0 +1,61 @@
+{
+  "comment": "Huber Eulerwiege 512.1 Eulerian cradle, real vendor CAD rigged by tools/cad/rig_articulation.py. Joint names come from the live articulation (isaacsim_probe.py reports chi_axis, phi_axis, z_axis). Soft limits sit INSIDE the physical joint limits authored in tools/cad/kinematics/huber_512_1.json (chi +/-100 deg, phi +/-180 deg, z +/-10 mm). retry_deadband values are PLACEHOLDERS until measured on the running model -- the drive gains they depend on are estimates, so the residual error cannot be derived. See docs/byo-model.md step 3.",
+  "prefix": "SIM:CRADLE:",
+  "bind": {
+    "http_host": "127.0.0.1",
+    "http_port": 8237,
+    "ca_interface": "127.0.0.1"
+  },
+  "stale_timeout": 1.0,
+  "update_rate": 20.0,
+  "axes": [
+    {
+      "motor": "m1",
+      "joint": "chi_axis",
+      "alias": "chi",
+      "desc": "Chi circle",
+      "units": {"sim": "rad", "egu": "deg"},
+      "low_limit": -98.0,
+      "high_limit": 98.0,
+      "velocity": 20.0,
+      "max_velocity": 60.0,
+      "accel_time": 0.5,
+      "retry_deadband": 0.05,
+      "precision": 4,
+      "settle_timeout": 8.0,
+      "stall_time": 0.5
+    },
+    {
+      "motor": "m2",
+      "joint": "phi_axis",
+      "alias": "phi",
+      "desc": "Phi rotation",
+      "units": {"sim": "rad", "egu": "deg"},
+      "low_limit": -178.0,
+      "high_limit": 178.0,
+      "velocity": 30.0,
+      "max_velocity": 90.0,
+      "accel_time": 0.5,
+      "retry_deadband": 0.05,
+      "precision": 4,
+      "settle_timeout": 8.0,
+      "stall_time": 0.5
+    },
+    {
+      "motor": "m3",
+      "joint": "z_axis",
+      "alias": "z",
+      "desc": "Z adjustment",
+      "units": {"sim": "m", "egu": "mm"},
+      "low_limit": -9.8,
+      "high_limit": 9.8,
+      "velocity": 2.0,
+      "max_velocity": 5.0,
+      "accel_time": 0.5,
+      "retry_deadband": 0.02,
+      "precision": 4,
+      "settle_timeout": 8.0,
+      "stall_time": 0.5
+    }
+  ]
+}
