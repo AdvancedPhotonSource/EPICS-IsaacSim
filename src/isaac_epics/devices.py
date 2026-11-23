@@ -91,7 +91,10 @@ def connect_stage(
         raise TimeoutError(
             f"could not connect to {config.prefix}* within {timeout:g}s: {exc}\n"
             f"Is the adapter running?  isaac-epics-ioc -c <config>\n"
-            f"Is EPICS_CA_ADDR_LIST set to reach it?"
+            f"Can Channel Access reach it? The adapter binds "
+            f"{config.ca_interface}, so the client needs:\n"
+            f"  export EPICS_CA_ADDR_LIST={config.ca_interface} "
+            f"EPICS_CA_AUTO_ADDR_LIST=NO"
         ) from exc
     return stage
 

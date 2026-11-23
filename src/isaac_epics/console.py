@@ -54,6 +54,22 @@ def build_namespace(config: AdapterConfig, timeout: float = 20.0) -> Dict[str, A
     # already a hard dependency of the adapter.
     os.environ.setdefault("OPHYD_CONTROL_LAYER", "caproto")
 
+    # Point the Channel Access client at wherever the adapter actually binds.
+    #
+    # The adapter serves CA on config.ca_interface, loopback by default. A
+    # client left on the default address list broadcasts, and a broadcast
+    # never reaches a server bound to 127.0.0.1 -- so the console times out
+    # and prints every signal it failed to connect, which is eighty lines of
+    # ophyd internals for what is really one missing environment variable.
+    #
+    # Derived from the config rather than hardcoded, because the config is
+    # what knows where the adapter is. setdefault, so anyone who has already
+    # exported their own address list keeps it. A wildcard bind is left
+    # alone: 0.0.0.0 is not an address a client can search.
+    if config.ca_interface not in ("0.0.0.0", ""):
+        os.environ.setdefault("EPICS_CA_ADDR_LIST", config.ca_interface)
+        os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
+
     import bluesky.plan_stubs as bps
     import bluesky.plans as bp
     from bluesky import RunEngine
