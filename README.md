@@ -255,6 +255,7 @@ Reasoning for each is recorded in §7 of
 - [`docs/console.md`](docs/console.md) — interactive control and WebRTC streaming
 - [`docs/protocol.md`](docs/protocol.md) — the wire protocol
 - [`docs/motor-record.md`](docs/motor-record.md) — which fields are live, inert, or absent
+- [`docs/validation.md`](docs/validation.md) — checking the motor record against the real one
 - [`docs/deployment.md`](docs/deployment.md) — running it at APS
 - [`EPICS-INTEGRATION-CONTEXT.md`](EPICS-INTEGRATION-CONTEXT.md) — the original design record
 
