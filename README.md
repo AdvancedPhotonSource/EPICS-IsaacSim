@@ -1,160 +1,93 @@
 # EPICS-IsaacSim
 
-An EPICS adapter layer for NVIDIA Isaac Sim digital twins, built for APS beamlines.
+An EPICS adapter for NVIDIA Isaac Sim digital twins, built for APS beamlines.
+It connects an Isaac Sim articulation to Channel Access in either direction:
 
-It connects an Isaac Sim articulation to EPICS, in either direction:
+- **The twin stands in for hardware.** The articulation is served as ordinary
+  **motor records**, so existing scan code, ophyd device definitions and
+  Phoebus screens drive it unmodified.
+- **The twin displays hardware.** [Mirror mode](docs/mirror.md) drives the
+  articulation from a real beamline's readbacks, read-only — a 3D model that
+  moves because the instrument is moving.
 
-- **The twin stands in for hardware.** It is served to the control system as
-  ordinary **motor records**, so existing scan code, ophyd device definitions
-  and Phoebus screens drive it unmodified. You run the actual scan file against
-  the actual device definitions; the twin stands in for the hardware, not for
-  the experiment.
-- **The twin displays real hardware.** [Mirror mode](docs/mirror.md) drives the
-  articulation from a real beamline's readbacks, read-only, so a 3D model moves
-  because the instrument is moving. Far less setup than the above — three
-  config fields per joint, no motor records, no deadbands to measure.
+Driving real hardware *from* the twin is **not implemented**: a
+controls-safety question, not a software one.
 
-> **This serves simulated motors.** Channel Access binds to loopback and the PV
-> prefix defaults to `SIM:TWIN:`. See [Safety](#safety) before changing either.
-
-## Status
-
-Verified end to end on APS hardware (Sentosa, Isaac Sim 6.2.0, stock Python
-3.9): a stock `bp.scan` drives a stock ophyd `EpicsMotor` over Channel Access
-into the adapter's motor record, over the HTTP tick, into Isaac Sim's PhysX
-articulation, and the measured joint position comes back the same way. No
-twin-aware code appears anywhere in the scan.
-
-| Piece | State |
-|---|---|
-| Motor record state machine, Channel Access server, HTTP tick | working |
-| ophyd `EpicsMotor` | all 19 bound fields served (ophyd 1.11.2) |
-| Bluesky scan → real articulation | 5-point scan on Sentosa, worst error 17 µm |
-| Mirror mode — real beamline → twin, read-only | working against live PVs; not yet run against a real beamline |
-| Twin commanding real hardware | **not implemented** — a controls-safety question, not a software one |
-
-This raises the fidelity of the *control path*, not of the *model*. A twin with
-wrong geometry behind a perfect IOC is still wrong — just more convincingly,
-because now it is wrong in response to real commands.
+> **This serves simulated motors.** Channel Access binds to loopback and the
+> PV prefix defaults to `SIM:TWIN:`. Read [Safety](#safety) before changing
+> either.
 
 ## Install
 
 ```bash
 pip install -e .              # the adapter: caproto only, Python >= 3.9
-pip install -e '.[bluesky]'   # + ophyd, bluesky and the interactive console
+pip install -e '.[bluesky]'   # + ophyd, bluesky, the interactive console
 ```
 
-Python ≥3.9 means the adapter runs in a venv on the APS hosts' stock
-interpreter — no new Python. Nothing is installed into Isaac Sim: the simulator
-side is one stdlib-only file,
-[`isaacsim_client/epics_tick.py`](isaacsim_client/epics_tick.py), copied next to
-your standalone script.
+Python ≥3.9 so it runs on the APS hosts' stock interpreter. Nothing is
+installed into Isaac Sim: the simulator side is one stdlib-only file,
+[`isaacsim_client/epics_tick.py`](isaacsim_client/epics_tick.py), copied next
+to your standalone script.
 
 ## Quick start — no EPICS, no GPU, no Isaac Sim
 
 ```bash
-# terminal 1: the adapter (HTTP endpoint + Channel Access server, one process)
-isaac-epics-ioc
+isaac-epics-ioc                 # terminal 1: HTTP tick + Channel Access server
+python examples/fake_sim.py     # terminal 2: stand-in for Isaac Sim, fake physics
 
-# terminal 2: a stand-in for Isaac Sim (same client and protocol, fake physics)
-python examples/fake_sim.py
-
-# terminal 3: drive it
+# terminal 3
 export EPICS_CA_ADDR_LIST=127.0.0.1 EPICS_CA_AUTO_ADDR_LIST=NO
-caput SIM:TWIN:m1 10        # or: python -m caproto.commandline.put SIM:TWIN:m1 10
+caput SIM:TWIN:m1 10
 camonitor SIM:TWIN:m1.RBV
-
-# or run a real Bluesky scan against it
-python examples/bluesky_scan.py
+python examples/bluesky_scan.py   # or drive it with a real Bluesky scan
 ```
 
 `fake_sim.py --pause-after 5` and `--die-after 10` reproduce the pause and
-staleness paths. `curl` works as a debugger:
-
-```bash
-curl -s http://127.0.0.1:8227/state | python -m json.tool
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8227/healthz   # 503 = no simulator
-```
+staleness paths. `curl -s http://127.0.0.1:8227/state` is a usable debugger.
 
 ## Running against Isaac Sim
 
 ```bash
-# host
-isaac-epics-ioc -c my_stage.json
+isaac-epics-ioc -c my_stage.json                        # host
 
-# inside the container
-/isaac-sim/python.sh examples/isaacsim_standalone.py \
-    --usd my_stage.usd --prim /World/MyStage/base \
-    --url http://127.0.0.1:8227
+/isaac-sim/python.sh examples/isaacsim_standalone.py \  # container
+    --usd my_stage.usd --prim /World/MyStage/base --url http://127.0.0.1:8227
 ```
 
-For your own model: probe the stage (`examples/isaacsim_probe.py`) for the real
-joint names, generate a configuration from the live articulation
-(`--emit-config`), then **measure the deadbands** — the one step that cannot be
-automated, and the one that wastes an afternoon when skipped.
-[`docs/byo-model.md`](docs/byo-model.md) walks through it;
-[`docs/deployment.md`](docs/deployment.md) covers podman and running at APS.
+For your own model: probe the stage (`examples/isaacsim_probe.py`) for the
+real joint names, generate a config from the live articulation
+(`--emit-config`), then **measure the deadbands** — the one step that cannot
+be automated, and the one that wastes an afternoon when skipped.
+[`docs/byo-model.md`](docs/byo-model.md) covers all of it, including vendor
+CAD conversion and letting a joint prim declare the PV that drives it.
 
-On the first frame the adapter checks its configuration against the articulation
-the simulation describes — joint names that match nothing, soft limits outside
-the physical joint limits, a stage authored at the wrong scale — and logs every
-finding, also publishing the verdict on `CFGOK` / `CFGMSG`. Findings are not
-fatal: bringing up a new model is when you most need the PVs to diagnose it.
+On the first frame the adapter checks the config against the articulation —
+joint names matching nothing, soft limits outside the physical joint, a stage
+at the wrong scale — logs every finding and publishes the verdict on `CFGOK` /
+`CFGMSG`. Findings are not fatal: bringing up a new model is when you most
+need the PVs to diagnose it.
 
 ## Watching real hardware instead
 
-Mirror mode is the other direction: real PVs in, joint motion out, read-only.
-It never writes to a PV, and a test enforces that statically.
-
 ```bash
-python examples/mirror_demo.py
+python examples/mirror_demo.py      # the whole chain on loopback, ~30 s, no beamline
+isaac-epics-mirror -c mirror.json   # against a real beamline, read-only
 ```
 
-That runs the whole chain on loopback in about thirty seconds with no beamline,
-no GPU and no Isaac Sim: a stand-in beamline IOC, real mirror mode against it
-over real Channel Access, a stand-in for Isaac Sim, and a demonstration that
-killing the source marks every channel stale rather than leaving the model
-frozen and silent. Then:
-
-```bash
-isaac-epics-mirror -c mirror.json
-```
-
-See [docs/mirror.md](docs/mirror.md). The configuration is three fields per
-joint, and none of the deadband, velocity or soft-limit work below applies.
+Mirror mode never writes to a PV, and a test enforces that statically. None
+of the configuration below applies to it — see [`docs/mirror.md`](docs/mirror.md).
 
 ## Configuration
 
-This section is for serving the twin *as* hardware. For mirror mode, see
-above — it needs almost none of it.
+One JSON file per instrument, one entry per axis — normally produced by
+`--emit-config` rather than hand-written. It names the PV prefix, the HTTP and
+Channel Access binds, and per axis the joint, engineering units, soft limits,
+velocity and retry deadband. The wire is always in simulation units (metres,
+radians); the axis `units` block is the only place conversion happens. Run
+without `-c` for the built-in 4-DOF x/y/z/theta stage.
 
-One JSON file per instrument, one entry per axis:
-
-```jsonc
-{
-  "prefix": "SIM:TWIN:",
-  "bind": { "http_host": "127.0.0.1", "http_port": 8227, "ca_interface": "127.0.0.1" },
-  "stale_timeout": 1.0,          // seconds without a frame before readbacks go INVALID
-  "update_rate": 20.0,           // Hz, motor state machine
-  "axes": [
-    {
-      "motor": "m1",             // PV is prefix + motor
-      "joint": "x_axis",         // as Isaac Sim reports it
-      "alias": "x",              // console name: %mov x 10
-      "units": { "sim": "m", "egu": "mm" },
-      "low_limit": -24.0, "high_limit": 24.0,
-      "velocity": 5.0, "max_velocity": 20.0, "accel_time": 0.2,
-      "retry_deadband": 0.02,    // must exceed the drive's measured residual error
-      "settle_timeout": 5.0, "stall_time": 0.3, "precision": 4
-    }
-  ]
-}
-```
-
-The wire is always in simulation units (metres, radians); `units` is the only
-place conversion happens. Soft limits must sit inside the articulation's
-physical joint limits, exactly as on a real beamline. Run without `-c` and you
-get the built-in 4-DOF x/y/z/theta stage.
+Full reference, with every field and how to tune it:
+[`docs/deployment.md`](docs/deployment.md).
 
 ## PVs served
 
@@ -168,96 +101,58 @@ get the built-in 4-DOF x/y/z/theta stage.
 
 `isaac-epics-ioc --list-pvs` prints every one without starting a server.
 
-caproto supplies all 153 motor field *definitions* and no behaviour at all — no
-`.DMOV` transitions, no backlash, no retries, no dial conversion, no limit
-enforcement. [`src/isaac_epics/motor.py`](src/isaac_epics/motor.py) is that
-missing half, kept pure (no caproto, no I/O) so motor semantics can be tested
-without a Channel Access stack.
-
 ## Interactive control
 
-Bluesky already ships the SPEC vocabulary, and the adapter serves ordinary motor
-records, so it works unmodified — there is no new command language to learn.
-
 ```bash
-isaac-epics-console -c examples/beamline.json
-```
-```
-In [1]: %mov x 10          # mv
-In [2]: %mov x 5 theta 45  # several axes at once
-In [3]: %movr x -2         # mvr
-In [4]: %wa                # where-all
-In [5]: RE(bp.scan([], x, -10, 10, 11))
+isaac-epics-console -c examples/beamline.json     # %mov x 10 theta 45, %wa, RE(bp.scan(...))
 ```
 
-Phoebus works too — the stock synApps motor screens bind to `SIM:TWIN:m1`
-because the record is faithful. See [docs/console.md](docs/console.md), which
-also covers running a WebRTC viewer alongside the console.
+Bluesky already ships the SPEC vocabulary and the adapter serves ordinary
+motor records, so there is no new command language. Phoebus works for the same
+reason — the stock synApps motor screens bind to `SIM:TWIN:m1` unmodified.
+[`docs/console.md`](docs/console.md) covers both, and a WebRTC viewer alongside.
 
-## Architecture
+## Status
 
-```
-        ┌──────────────────────────┐          ┌─────────────────────────────────┐
-        │  Isaac Sim (container)   │          │  Adapter (host, one process)    │
-        │                          │  HTTP    │                                 │
-        │  per-frame tick:         │ ───────► │  TickServer  →  SharedPlant     │
-        │    positions, t_sim,     │   JSON   │                     ▲  │        │
-        │    playing               │ ◄─────── │                     │  ▼        │
-        │  applies joint targets   │          │              MotorAxis × N      │
-        │                          │          │                     │           │
-        │  stdlib only — no        │          │              caproto IOC        │
-        │  caproto, numpy, ZMQ     │          │                     │           │
-        └──────────────────────────┘          └─────────────────────┼───────────┘
-                                                                    │ Channel Access
-                                                    ophyd / Bluesky / Phoebus / caput
-```
+Verified end to end on APS hardware (Sentosa, Isaac Sim 6.2.0, stock Python
+3.9): a stock `bp.scan` drives a stock ophyd `EpicsMotor` over Channel Access
+into the adapter's motor record, over the HTTP tick, into PhysX, and the
+measured joint position comes back the same way. No twin-aware code appears
+anywhere in the scan; worst error on a 5-point scan was 17 µm. All 19 fields
+ophyd 1.11.2 binds are served. Mirror mode works against live PVs but has not
+yet been run against a real beamline.
 
-- The adapter runs **out of process** from Isaac Sim, which owns its own main
-  thread — and this keeps caproto, ophyd and their numpy out of Kit's embedded
-  Python.
-- **Isaac Sim is the client**: one outbound connection to one endpoint, never inbound.
-- **One process holds both the IOC and the socket**, because the motor record
-  needs command input and position feedback in the same place, synchronously.
-- Motor logic talks to a [`Plant`](src/isaac_epics/plant.py), not to a
-  transport, so the backend can change without touching motor code.
-
-Reasoning for each is recorded in §7 of
-[`EPICS-INTEGRATION-CONTEXT.md`](EPICS-INTEGRATION-CONTEXT.md).
+This raises the fidelity of the *control path*, not of the *model*. A twin
+with wrong geometry behind a perfect IOC is still wrong — just more
+convincingly.
 
 ## Safety
 
 - **Staleness is loud.** When frames stop, readbacks go `INVALID`, `.MSTA`
-  raises `PROBLEM` and `COMM_ERR`, and **`.DMOV` is not asserted** — a scan
-  waiting on it blocks with an alarm raised. A visible hang beats a fabricated
+  raises `PROBLEM` and `COMM_ERR`, and `.DMOV` is **not** asserted — a scan
+  waiting on it blocks with an alarm. A visible hang beats a fabricated
   completion.
-- **A move can never complete while the simulation is not stepping.** Simulation
-  time drives the trajectory, so pausing freezes the ramp instead of letting it
-  run on and snap; wall time governs staleness only. A frozen readback sitting
-  inside the deadband is not evidence a move finished, and two independent
-  mechanisms prevent it counting as one.
-- **The client refuses to heartbeat stale data.** If Isaac Sim's render loop
-  stops calling `exchange()`, the client goes quiet rather than reposting the
-  last snapshot, which would make a frozen simulator look healthy
-  (`max_frame_age`).
-- **Refused moves are not clamped.** Outside the soft limits, `.LVIO` is set and
-  `.VAL` left alone, rather than recording a position that was never reached.
+- **A move can never complete while the simulation is not stepping.**
+  Simulation time drives the trajectory, so pausing freezes the ramp rather
+  than letting it run on and snap; wall time governs staleness only.
+- **Refused moves are not clamped.** Outside the soft limits, `.LVIO` is set
+  and `.VAL` left alone, rather than recording a position never reached.
 - **Channel Access binds to loopback by default**, so starting the adapter
   cannot serve simulated motors onto the controls subnet. Changing that is a
-  deliberate act and is logged as one.
-- **Naming discipline.** The adapter warns at startup about any prefix that
-  could be confused with a real beamline IOC.
+  deliberate act and is logged as one, and any prefix that could be confused
+  with a real beamline IOC is warned about at startup.
 - **Mirror mode never writes to a PV**, and a test enforces it statically.
 
 ## Documentation
 
-- [`docs/mirror.md`](docs/mirror.md) — driving the model from live PVs (visualisation)
 - [`docs/byo-model.md`](docs/byo-model.md) — using your own CAD or USD model
+- [`docs/mirror.md`](docs/mirror.md) — driving the model from live PVs
 - [`docs/console.md`](docs/console.md) — interactive control and WebRTC streaming
+- [`docs/deployment.md`](docs/deployment.md) — where each piece runs, and running it at APS
 - [`docs/protocol.md`](docs/protocol.md) — the wire protocol
 - [`docs/motor-record.md`](docs/motor-record.md) — which fields are live, inert, or absent
-- [`docs/validation.md`](docs/validation.md) — checking the motor record against the real one
-- [`docs/deployment.md`](docs/deployment.md) — running it at APS
-- [`EPICS-INTEGRATION-CONTEXT.md`](EPICS-INTEGRATION-CONTEXT.md) — the original design record
+- [`docs/validation.md`](docs/validation.md) — checking the record against the real one
+- [`EPICS-INTEGRATION-CONTEXT.md`](EPICS-INTEGRATION-CONTEXT.md) — the design record and its rationale
 
 ## Development
 
