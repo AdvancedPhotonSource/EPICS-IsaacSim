@@ -10,3 +10,16 @@ build/
 .coverage
 htmlcov/
 .DS_Store
+
+# Vendor CAD is fetched, never committed: Huber and Kohzu publish no terms
+# at all (default copyright, not permission) and SmarAct forbids
+# redistribution outright. See tools/cad/fetch_huber.py.
+#
+# Anchored to the repository root so it cannot swallow tools/cad/, which is
+# the fetching code and must stay tracked.
+/cad/
+*.stp
+*.step
+*.usd
+*.usda
+*.usdc
