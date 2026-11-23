@@ -106,6 +106,21 @@ def main(argv=None):
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 
+    # Give the stage a time range. A stage authored from scratch has none,
+    # which leaves omni.timeline with a degenerate play range: the simulation
+    # steps, the articulation settles under gravity, and then
+    # timeline.get_current_time() sits at zero forever.
+    #
+    # That is fatal for this adapter specifically. Simulation time drives the
+    # trajectory -- deliberately, so pausing the simulation freezes a ramp
+    # rather than letting it run on -- so a frozen clock means no move can
+    # ever complete, and .DMOV would never rise. Isaac Sim's own
+    # create_new_stage sets these, which is why a built stage works and a
+    # hand-authored one silently does not.
+    stage.SetTimeCodesPerSecond(60.0)
+    stage.SetStartTimeCode(0.0)
+    stage.SetEndTimeCode(1.0e7)
+
     root = UsdGeom.Xform.Define(stage, "/World")
     stage.SetDefaultPrim(root.GetPrim())
     asset = UsdGeom.Xform.Define(stage, "/World/cradle")
