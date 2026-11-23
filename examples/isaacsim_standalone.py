@@ -202,6 +202,42 @@ def joint_types(robot):
     return out
 
 
+def split_pv(pv):
+    """Split "SIM:CRADLE:m1" into ("SIM:CRADLE:", "m1")."""
+    head, sep, tail = pv.rpartition(":")
+    if not sep or not tail:
+        return None, pv
+    return head + sep, tail
+
+
+def resolve_prefix(descriptor, fallback):
+    """Work out the PV prefix from what the model declares.
+
+    A config serves exactly one prefix, so joints declaring PVs under
+    different prefixes cannot be served by one adapter. That is a real
+    configuration error -- two instruments in one stage want two adapters --
+    and it is worth refusing clearly rather than silently serving the first
+    one and leaving the rest inert.
+    """
+    declared = [j["motor_pv"] for j in descriptor["joints"] if j.get("motor_pv")]
+    if not declared:
+        return fallback, []
+    prefixes = {split_pv(pv)[0] for pv in declared}
+    prefixes.discard(None)
+    if len(prefixes) > 1:
+        raise SystemExit(
+            "ERROR: the stage declares PVs under more than one prefix: %s\n"
+            "       One adapter serves one prefix. Split the stage, or drive "
+            "it with one adapter per prefix." % ", ".join(sorted(prefixes))
+        )
+    resolved = prefixes.pop()
+    notes = []
+    if fallback and resolved != fallback:
+        notes.append("--prefix %r was overridden by the prefix the model "
+                     "declares, %r" % (fallback, resolved))
+    return resolved, notes
+
+
 def emit_config(path, descriptor, prefix):
     """Write an adapter configuration derived from the real articulation.
 
@@ -210,13 +246,22 @@ def emit_config(path, descriptor, prefix):
     while every PV looks healthy. Names, types and limits are taken from the
     mechanism, so they cannot be mistyped.
 
-    What it cannot know is left marked. Velocities are a guess scaled to the
-    travel, and the deadband is deliberately set to a placeholder with a
-    comment, because the steady-state error of a drive depends on the mass it
-    carries and the gains it was given -- it has to be measured on the
-    running model, not inferred from its limits.
+    Where a joint declares `epics:motorPV`, the motor name and the prefix come
+    from the model too, so the generated config agrees with the asset by
+    construction rather than by someone keeping two files in step. Joints that
+    declare nothing fall back to m1, m2, ... under --prefix, which is what
+    every stage authored before bindings existed does.
+
+    What it cannot know is still left marked. Velocities are a guess scaled to
+    the travel, and the deadband is a placeholder, because the steady-state
+    error of a drive depends on the mass it carries and the gains it was
+    given -- it has to be measured on the running model.
     """
     import math as _math
+
+    prefix, prefix_notes = resolve_prefix(descriptor, prefix)
+    for note in prefix_notes:
+        log({"event": "prefix_from_model", "note": note})
 
     axes = []
     for index, joint in enumerate(descriptor["joints"], start=1):
@@ -229,8 +274,20 @@ def emit_config(path, descriptor, prefix):
         # Keep soft limits inside the joint, as on a real beamline.
         margin = (hi_egu - lo_egu) * 0.02
         span = hi_egu - lo_egu
+        declared_pv = joint.get("motor_pv")
+        if declared_pv:
+            declared_prefix, motor = split_pv(declared_pv)
+            # The prefix is already resolved and identical across joints, so
+            # only the suffix varies here.
+            basis = "declared by the model as %s" % declared_pv
+        else:
+            motor = "m%d" % index
+            basis = ("no epics:motorPV on this joint; name generated. Author "
+                     "one on the joint prim to make the asset self-describing.")
+
         axes.append({
-            "motor": "m%d" % index,
+            "motor": motor,
+            "_pv_basis": basis,
             "joint": joint["name"],
             "alias": joint["name"].replace("-", "_"),
             "desc": joint["name"],
@@ -253,7 +310,11 @@ def emit_config(path, descriptor, prefix):
                     "must exceed the drive's measured steady-state error, which "
                     "depends on mass and gains and can only be measured on the "
                     "running model. Run a move on each axis, let it settle "
-                    "fully, and set .RDBD above the residual error."
+                    "fully, and set .RDBD above the residual error. Motor "
+                    "names marked _pv_basis 'declared by the model' came from "
+                    "epics:motorPV on the joint prim and agree with the asset "
+                    "by construction; any marked 'generated' are invented and "
+                    "the asset does not know them."
                     % descriptor.get("prim", "?")),
         "prefix": prefix,
         "bind": {"http_host": "127.0.0.1", "http_port": 8227,
