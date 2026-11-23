@@ -149,3 +149,79 @@ async def test_value_channels_advertise_engineering_units(ioc):
         assert group.rbv.units in (egu, egu.encode()), (
             f"{motor}.RBV units = {group.rbv.units!r}, expected {egu!r}"
         )
+
+
+async def test_publish_path_actually_lands_every_field():
+    """Tick the IOC for real and assert the published fields move.
+
+    Everything above tests the PV *surface* -- that names, types and metadata
+    exist. None of it ticks, so none of it covers ``MotorPVGroup.publish``,
+    which is the code that puts values onto Channel Access.
+
+    That matters because ``_write`` swallows every exception and logs it at
+    DEBUG. A field that could not be written -- renamed, retyped, or given a
+    value its channel cannot represent -- fails silently and forever, and the
+    PV simply keeps returning its default. The adapter looks healthy and
+    serves a lie, which is the one failure mode this project is built to
+    refuse. So: drive a complete move and assert both that the values arrive
+    and that nothing was swallowed on the way.
+    """
+    import logging
+
+    from isaac_epics.plant import SharedPlant
+    from isaac_epics.protocol import SimFrame
+
+    swallowed = []
+
+    class Catch(logging.Handler):
+        def emit(self, record):
+            swallowed.append(record.getMessage())
+
+    handler = Catch()
+    logger = logging.getLogger("isaac_epics.ioc")
+    logger.addHandler(handler)
+    previous = logger.level
+    logger.setLevel(logging.DEBUG)
+
+    try:
+        plant = SharedPlant(stale_timeout=100.0)
+        ioc = build_ioc(default_config(), plant)
+        group = ioc.motor_m1
+        joint = group.cfg.joint
+
+        t_sim = 0.0
+        position = 0.0
+        plant.submit_frame(SimFrame(positions={joint: position}, t_sim=t_sim,
+                                    playing=True, seq=1))
+        await ioc.tick_all()
+
+        await group.val.write(3.0)
+        for seq in range(2, 400):
+            targets = plant.targets
+            if joint in targets:
+                # Converge on whatever the trajectory asked for.
+                position += (targets[joint] - position) * 0.5
+            t_sim += 1 / 60.0
+            plant.submit_frame(SimFrame(positions={joint: position}, t_sim=t_sim,
+                                        playing=True, seq=seq))
+            await ioc.tick_all()
+            if group.dmov.value == 1 and seq > 10:
+                break
+
+        assert not swallowed, f"publish swallowed write failures: {swallowed}"
+
+        # The readback reached the commanded position, in engineering units...
+        assert group.rbv.value == pytest.approx(3.0, abs=group.cfg.retry_deadband)
+        # ...and the completion flags agree with it.
+        assert group.dmov.value == 1, "move never reported done"
+        assert group.movn.value == 0
+        assert group.lvio.value == 0
+        assert group.sim_link.value == "running"
+        assert group.sim_target.value == pytest.approx(
+            group.cfg.to_sim(3.0), abs=1e-6)
+        # Status group published too.
+        assert ioc.status.link.value == "running"
+        assert ioc.status.frames.value > 0
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
