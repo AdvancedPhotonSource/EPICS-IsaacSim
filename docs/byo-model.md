@@ -17,6 +17,49 @@ are a `"shape": "box"` entry in a mechanism table; CAD is the same table with
 What the adapter *does* require is a USD articulation with named degrees of
 freedom. Geometry alone is not enough: CAD carries shape, never joints.
 
+## Starting from real vendor CAD
+
+`tools/cad/` automates the route from a vendor STEP file to a riggable USD,
+and gates it at both ends. Worked end to end on a Huber 512_1 Eulerian cradle:
+
+```bash
+# 1. fetch and check the STEP is an assembly, not a fused solid
+python3 -I tools/cad/fetch_huber.py 512_1 --out /local/$USER/cad
+
+# 2. convert (inside the Isaac Sim container)
+tools/cad/convert_step.sh in.stp out.usd
+
+# 3. check the conversion survived
+/isaac-sim/python.sh tools/cad/usd_structure.py out.usd BASE Z CHI_PHI PHI_PLATE
+```
+
+Result on the cradle: `metersPerUnit 1.0`, 25 prims by `Traverse()` and 25 by
+`TraverseAll()` (so nothing is instanced), 16 meshes, 0 physics prims, and all
+four bodies addressable — `BASE`, `Z`, `CHI_PHI`, `PHI_PLATE`, which is a real
+3-DOF goniometer.
+
+Four things this pipeline exists to stop:
+
+- **Fused solids.** A single merged body has nothing to put a joint between.
+  Huber's own `5101_05` is fused although its family was reported as
+  `BASE/SLIDE` assemblies, so family names predict nothing — parse the file.
+- **Scale.** STEP is usually millimetres. The converter's default keeps the
+  model's units, so the USD arrives at `metersPerUnit 0.001` and everything is
+  1000× out in a metres scene. `convert_step.sh` forces `1.0`.
+- **Instancing.** The converter's default hides meshes under `/Prototypes`,
+  where `CollisionAPI` cannot be applied and per-prim attributes cannot be
+  authored — which would also block PV bindings. Forced off.
+- **Licensing.** Geometry is fetched, never committed. Huber and Kohzu publish
+  no terms at all, which is default copyright rather than permission; SmarAct
+  and GrabCAD forbid redistribution outright.
+
+Two things it does *not* fix. The converter mangles prim names into forms like
+`tn__512_145166_202401_BASE_mW06`, because the CAD names start with digits and
+contain characters USD does not allow in identifiers; they are addressable but
+ugly, and a mechanism table has to reference them exactly. And **CAD carries no
+kinematics at all** — `physics prims: 0` is the expected result, not a failure.
+Joints, masses and drive gains are authored by someone who knows the hardware.
+
 ## Two routes in
 
 **A. Describe the kinematics in a mechanism table** (what the digital-twin
