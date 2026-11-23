@@ -225,3 +225,58 @@ async def test_publish_path_actually_lands_every_field():
     finally:
         logger.removeHandler(handler)
         logger.setLevel(previous)
+
+
+async def test_out_of_limit_write_is_accepted_and_flagged_not_refused():
+    """Match the real motor record on a move beyond the soft limits.
+
+    Verified against motorSim (the genuine motorRecord, motor R7-4) with
+    tools/motor_oracle.py. Writing .VAL 50 with .HLM 5:
+
+        the Channel Access write SUCCEEDS
+        .VAL reads back the PREVIOUS setpoint (not 50, and not clamped to 5)
+        .LVIO reads 1
+        the axis does not move
+        the next legal move clears .LVIO
+
+    caproto does not do this on its own. ChannelNumeric.verify_value raises
+    CannotExceedLimits whenever the control limits differ and the value is
+    outside them, and it raises before the putter -- so request_move was never
+    reached, .LVIO stayed 0, and the client got a write error where real
+    hardware gives it a flag. The README promised the .LVIO behaviour that the
+    code could not actually deliver.
+
+    The control limits must still be advertised: ophyd's EpicsMotor.limits is
+    user_setpoint.limits, i.e. the control limits of this channel, so clearing
+    them would blind bluesky's check_limits.
+    """
+    from isaac_epics.plant import LoopbackPlant
+
+    ioc = build_ioc(default_config(), LoopbackPlant())
+    group = ioc.motor_m1
+    await ioc.tick_all()
+
+    await group.hlm.write(5.0)
+    await ioc.tick_all()
+    before = group.rbv.value
+
+    # The control limits are still published, for ophyd and Phoebus.
+    assert group.val.upper_ctrl_limit == pytest.approx(5.0)
+
+    # The write is accepted rather than raising CannotExceedLimits.
+    await group.val.write(50.0)
+    await ioc.tick_all()
+
+    assert group.val.value != pytest.approx(50.0), "an impossible target was stored"
+    assert group.val.value != pytest.approx(5.0), (
+        "the target was silently clamped to the limit; a scan would record a "
+        "position it never reached"
+    )
+    assert group.lvio.value == 1, ".LVIO must flag the refused move"
+    assert group.rbv.value == pytest.approx(before), "a refused move must not move"
+
+    # A legal move clears the flag, as on the real record.
+    await group.val.write(3.0)
+    for _ in range(5):
+        await ioc.tick_all()
+    assert group.lvio.value == 0, ".LVIO must clear on the next legal move"

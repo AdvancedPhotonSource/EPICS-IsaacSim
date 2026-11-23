@@ -17,6 +17,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from caproto import ChannelType
+from caproto._data import CannotExceedLimits
 from caproto.server import PVGroup, PvpropertyDouble, SubGroup, pvproperty
 
 from .config import AdapterConfig, AxisConfig
@@ -33,6 +34,43 @@ _SEVERITY_MAP = {
     Severity.MAJOR: 2,
     Severity.INVALID: 3,
 }
+
+
+class _AdvisoryLimitDouble(PvpropertyDouble):
+    """A double whose control limits are advertised to clients but not enforced.
+
+    The real motor record ACCEPTS a write beyond ``.HLM``/``.LLM``. It does
+    not move, it reverts ``.VAL`` to the previous setpoint, and it raises
+    ``.LVIO``. Verified against motorSim (motor R7-4): ``caput .VAL 50`` with
+    ``.HLM 5`` returns success, ``.VAL`` reads back 0, ``.LVIO`` reads 1, and
+    the next legal move clears ``.LVIO`` again.
+
+    caproto does not do that. ``ChannelNumeric.verify_value`` raises
+    ``CannotExceedLimits`` whenever the control limits differ and the value
+    falls outside them, and it raises *before* the putter runs -- so
+    ``request_move`` was never called, ``.LVIO`` was never set, and the client
+    got a Channel Access write error where real hardware gives it a flag.
+    A scan written against a real motor would not survive the difference.
+
+    Dropping the control limits would fix the write and break something else:
+    ophyd's ``EpicsMotor.limits`` is ``user_setpoint.limits``, the control
+    limits of this very channel, so clearing them tells ophyd and Phoebus the
+    axis is unlimited and defeats bluesky's pre-flight ``check_limits``.
+
+    So: keep the metadata, drop the enforcement, and let the state machine in
+    motor.py decide -- which is where the decision belonged anyway.
+    """
+
+    async def verify_value(self, value):
+        try:
+            return await super().verify_value(value)
+        except CannotExceedLimits:
+            # Hand the value to the putter exactly as an in-range write would
+            # be handed over. request_move rejects it, sets .LVIO, and returns
+            # the live setpoint, so .VAL is never silently clamped.
+            if self.putter is not None:
+                return await self.putter(self, value)
+            return value
 
 
 class MotorPVGroup(PVGroup):
@@ -52,7 +90,7 @@ class MotorPVGroup(PVGroup):
     # -- the value field ---------------------------------------------------
 
     val = pvproperty(
-        value=0.0, name="", dtype=PvpropertyDouble, record="motor",
+        value=0.0, name="", dtype=_AdvisoryLimitDouble, record="motor",
         doc="Desired value (.VAL) - writing starts a move",
         precision=4,
     )
