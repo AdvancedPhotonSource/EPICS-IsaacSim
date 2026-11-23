@@ -16,14 +16,14 @@ Verified end to end on APS hardware (Sentosa, Isaac Sim 6.2.0, stock Python
 3.9): a stock `bp.scan` drives a stock ophyd `EpicsMotor` over Channel Access
 into the adapter's motor record, over the HTTP tick, into Isaac Sim's PhysX
 articulation, and the measured joint position comes back the same way. No
-twin-aware code appears anywhere in the scan. 178 tests pass.
+twin-aware code appears anywhere in the scan. 179 tests pass.
 
 | Piece | State |
 |---|---|
 | Motor record state machine, Channel Access server, HTTP tick | working |
 | ophyd `EpicsMotor` | all 19 bound fields served (ophyd 1.11.2) |
 | Bluesky scan → real articulation | 5-point scan on Sentosa, worst error 17 µm |
-| Mirror mode — real beamline → twin, read-only | implemented, not yet run against a live beamline |
+| Mirror mode — real beamline → twin, read-only | working against live PVs; not yet run against a real beamline |
 | Twin commanding real hardware | **not implemented** — a controls-safety question, not a software one |
 
 This raises the fidelity of the *control path*, not of the *model*. A twin with
