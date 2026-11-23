@@ -259,6 +259,24 @@ class MotorAxis:
             return False
 
         self._lvio = 0
+
+        # Re-commanding the position the axis is already holding starts no
+        # move on a real motor record: .DMOV never drops. Measured on
+        # motorSim with tools/motor_oracle.py.
+        #
+        # Without this the axis re-converges on whatever residual error it
+        # was resting with -- legal, since it had settled inside .RDBD, but
+        # it is real motion the control system never asked for. Measured at
+        # 0.041 mm on a settled axis. In a twin that is a visible twitch, and
+        # a scan that re-sends a position sees a .DMOV cycle where real
+        # hardware gives it none.
+        #
+        # Exact equality on purpose: the client is writing back a value it
+        # read from this same channel. A tolerance here would swallow real
+        # short moves, which sub_deadband_move shows both records DO perform.
+        if self._done_moving and not self.in_motion and user_target == self.setpoint:
+            return True
+
         self._missed = 0
         self._retry_count = 0
         self._dial_setpoint = self._to_dial(user_target)

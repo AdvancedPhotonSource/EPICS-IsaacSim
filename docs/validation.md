@@ -78,3 +78,41 @@ leaving the decision to the state machine.
 
 That bug was invisible to 180 passing tests, because the tests asserted the
 behaviour the code had rather than the behaviour a motor record has.
+
+**Re-commanding the current setpoint produced a twitch.** Writing `.VAL` with
+the value it already holds starts no move on a real record — `.DMOV` never
+drops. Ours started one and re-converged on whatever residual error it had
+settled with: 0.041 mm of motion the control system never asked for, plus a
+`.DMOV` cycle a scan would not expect. In a twin that is a visible twitch.
+Fixed in `MotorAxis.request_move`, keyed on the target being *unchanged*
+rather than the distance being small — because a sub-deadband move to a
+genuinely new target must still move, which is what both records do.
+
+## Accepted divergences
+
+One difference is deliberate and is reported as `ACCEPTED` rather than hidden,
+because a divergence nobody can see is a divergence nobody revisits:
+
+| Scenario | Difference | Why |
+|---|---|---|
+| `stop_mid_move` | the real record decelerates after `.STOP` and travels a little further (0.53 mm measured); ours stops where it is | `MotorAxis.stop()` holds at the *measured* position on purpose, so the axis cannot creep forward when the plant is lagging the ramp |
+
+Anything that differs and is *not* listed there fails the run.
+
+## Two traps the harness itself fell into
+
+Both are worth knowing, because they are the shape of mistake this kind of
+comparison invites — the tool reporting its own measurement artefacts as
+defects in the thing under test.
+
+**`.MOVN` and `.DMOV` both zero is legal.** The first version asserted they
+were exact complements. They are not: between the commanded trajectory
+finishing and the readback reaching the deadband, the axis is neither moving
+nor done. The real record has the same window during `.DLY`. The real
+contradiction to test for is both being *one*.
+
+**"Moved" must be measured against the deadband, not against zero.** A
+physics-backed plant never shows a perfectly static readback; it keeps
+converging on a target it already has. Against the oracle's kinematic plant,
+which arrives exactly, a 1e-6 threshold reports that convergence as a
+semantic difference.

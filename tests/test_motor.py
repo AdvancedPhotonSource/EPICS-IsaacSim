@@ -492,3 +492,62 @@ def test_a_floor_outside_the_deadband_still_reports_missed():
     outputs = run(axis, plant, seconds=120)
     assert outputs.done_moving == 1, "must not hang"
     assert outputs.missed == 1
+
+
+def test_recommanding_the_current_setpoint_starts_no_move():
+    """A real motor record does nothing when .VAL is rewritten unchanged.
+
+    Measured on the genuine motorRecord with tools/motor_oracle.py: .DMOV
+    never drops and the axis does not move. Ours used to start a move and
+    re-converge on its residual settling error -- 0.041 mm of motion the
+    control system never requested, which is a visible twitch in a twin and
+    an unexpected .DMOV cycle for a scan that re-sends a position.
+
+    A sub-deadband move to a DIFFERENT target must still move, which is what
+    both records do; see test below.
+    """
+    from isaac_epics.config import AxisConfig
+    from isaac_epics.motor import MotorAxis
+
+    cfg = AxisConfig(motor="m1", joint="x_axis", retry_deadband=0.05)
+    axis = MotorAxis(cfg)
+    plant = FakePlant(joint="x_axis", tau=0.02)
+
+    axis.request_move(5.0)
+    outputs = run(axis, plant, seconds=10.0)
+    assert outputs.done_moving == 1
+
+    # The invariant is that no NEW target is commanded. The readback itself
+    # keeps drifting while the plant finishes converging on the target it
+    # already had, which is the plant settling, not a twitch we caused.
+    target_before = outputs.target_sim
+
+    axis.request_move(axis.setpoint)
+    outputs = axis.tick(plant.state())
+    assert outputs.done_moving == 1, ".DMOV must not drop on an unchanged target"
+    assert not axis.in_motion, "no motion may be started for the current setpoint"
+    assert outputs.target_sim == pytest.approx(target_before), (
+        "re-commanding the current setpoint issued a new joint target"
+    )
+
+
+def test_a_sub_deadband_move_to_a_new_target_still_moves():
+    """The no-op above must not swallow genuinely short moves.
+
+    Both records move for a step smaller than .RDBD -- verified against
+    motorSim as scenario sub_deadband_move -- so the short-circuit has to key
+    on the target being unchanged, not on the distance being small.
+    """
+    from isaac_epics.config import AxisConfig
+    from isaac_epics.motor import MotorAxis
+
+    cfg = AxisConfig(motor="m1", joint="x_axis", retry_deadband=0.05)
+    axis = MotorAxis(cfg)
+    plant = FakePlant(joint="x_axis", tau=0.02)
+
+    axis.request_move(5.0)
+    run(axis, plant, seconds=10.0)
+
+    started = axis.request_move(axis.setpoint + 0.02)
+    assert started
+    assert axis.in_motion, "a short move to a NEW target must still be a move"
