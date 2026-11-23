@@ -60,6 +60,53 @@ ugly, and a mechanism table has to reference them exactly. And **CAD carries no
 kinematics at all** — `physics prims: 0` is the expected result, not a failure.
 Joints, masses and drive gains are authored by someone who knows the hardware.
 
+## Letting the model declare its own PVs
+
+A joint prim can name the PV that drives it:
+
+```usda
+def PhysicsRevoluteJoint "chi_axis"
+{
+    custom uniform string epics:motorPV = "SIM:CRADLE:m1"
+    uniform token physics:axis = "Z"
+}
+```
+
+`tools/cad/rig_articulation.py` writes these from the `pv` field of a
+kinematics table. The bridge discovers them, ships them in the articulation
+descriptor it already sends, and the adapter checks them against what it is
+actually serving on the first frame:
+
+```
+ERROR: joint 'chi_axis' is declared in the model as 'SIM:CRADLE:m1' but is
+served here as 'SIM:CRADLE:m7'. One of the two is wrong, and a scan written
+against the declared name would drive nothing while every PV looked healthy.
+```
+
+Without this, the binding exists only as a hand-typed `"joint": "chi_axis"`
+in a config file the asset knows nothing about — two files that have to agree
+with nothing re-reading either. The failure is silent: the axis never moves
+and every PV looks fine.
+
+Declaring nothing is still fine. A stage with no `epics:` attributes is not
+nagged about it, and the config's joint names are used as before.
+
+Four things worth knowing if you author these by hand:
+
+- **Use a namespaced custom attribute, not `customData`.** A colon in a
+  `customData` key is a dictionary path separator, so what `SetCustomData`
+  writes flat, `GetCustomDataByKey` cannot read back.
+- **Put them in a layer that references the CAD**, never in the converted
+  file. A re-import regenerates its output and does not merge, so anything
+  authored into it is destroyed on the next conversion.
+- **Instancing must be off.** An instanced prim cannot carry per-instance
+  attributes at all, and it is invisible to a plain `Traverse()` — so a
+  binding on one is both unauthorable and undiscoverable. `convert_step.sh`
+  disables instancing for this reason as well as for collision.
+- **The prim name is the join.** Discovery matches the joint prim's name
+  against the articulation's `dof_names`; paths differ, names are what both
+  sides agree on.
+
 ## Two routes in
 
 **A. Describe the kinematics in a mechanism table** (what the digital-twin

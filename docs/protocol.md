@@ -50,6 +50,31 @@ difference between a bug you find in a unit test and one you find in a scan.
 | `playing` | bool | **yes** | Whether the simulation is actually stepping. |
 | `seq` | int ≥ 0 | no | Monotonic counter; a regression is read as a client restart. |
 | `meta` | object | no | Free-form diagnostics. Never interpreted by motor logic. |
+| `articulation` | object | no | Sent on the first frames only. Describes the mechanism so the adapter can check its configuration against what exists. |
+
+### `articulation`
+
+```json
+{
+  "prim": "/World/cradle",
+  "meters_per_unit": 1.0,
+  "joints": [
+    {"name": "chi_axis", "type": "revolute", "lower": -1.745, "upper": 1.745,
+     "motor_pv": "SIM:CRADLE:m1"}
+  ]
+}
+```
+
+`motor_pv` is optional and carries a binding the **model** declares — read
+from an `epics:motorPV` attribute on the joint prim. When present, the
+adapter checks it against the PV it is actually serving for that joint and
+reports a disagreement as an error. When absent, nothing is reported and the
+config's own joint names are used, which is every stage authored before this
+field existed.
+
+Isaac Sim still knows nothing about EPICS here. It does not interpret the
+string, it copies one it found in the stage; all motor-record semantics stay
+in the adapter.
 
 `playing` is mandatory and has no default. A paused simulation reporting a frozen
 readback as a settled move is the failure most likely to quietly corrupt a scan,
