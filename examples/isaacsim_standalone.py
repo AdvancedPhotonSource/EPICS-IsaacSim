@@ -108,11 +108,14 @@ if args.livestream:
     simulation_app.set_setting("/app/window/drawMouse", True)
     enable_extension("omni.kit.livestream.app")
 
-# The mechanism builder lives in the digital-twin checkout and is used
-# read-only. The EPICS client is a single stdlib-only file in this repo.
-sys.path.insert(0, os.path.abspath(args.mechanism_root))
-from mechanism.build_mechanism import build  # noqa: E402
-
+# The EPICS client is a single stdlib-only file in this repo.
+#
+# The mechanism builder is NOT imported here. It lives in the digital-twin
+# checkout, and importing it at module scope made --usd -- the documented
+# route for bringing your own model -- fail with ModuleNotFoundError for
+# anyone who does not have that checkout mounted. A bring-your-own-asset
+# path that requires someone else's package is not one. It is imported
+# inside the branch that actually builds a mechanism.
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "isaacsim_client"))
 from epics_tick import EpicsTickClient  # noqa: E402
@@ -272,6 +275,18 @@ def main():
             return 2
         log({"event": "stage_opened", "usd": args.usd, "prim": prim_path})
     else:
+        sys.path.insert(0, os.path.abspath(args.mechanism_root))
+        try:
+            from mechanism.build_mechanism import build
+        except ImportError as exc:
+            print(f"ERROR: no mechanism package under {args.mechanism_root!r}: {exc}",
+                  file=sys.stderr)
+            print("       Either mount the digital-twin checkout and pass "
+                  "--mechanism-root,", file=sys.stderr)
+            print("       or bring your own stage with --usd and --prim.",
+                  file=sys.stderr)
+            simulation_app.close()
+            return 2
         stage_utils.create_new_stage(template="sunlight")
         usd_stage = stage_utils.get_current_stage()
         GroundPlane("/World/GroundPlane")
