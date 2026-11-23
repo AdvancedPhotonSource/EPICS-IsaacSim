@@ -16,7 +16,7 @@ Verified end to end on APS hardware (Sentosa, Isaac Sim 6.2.0, stock Python
 3.9): a stock `bp.scan` drives a stock ophyd `EpicsMotor` over Channel Access
 into the adapter's motor record, over the HTTP tick, into Isaac Sim's PhysX
 articulation, and the measured joint position comes back the same way. No
-twin-aware code appears anywhere in the scan. 179 tests pass.
+twin-aware code appears anywhere in the scan.
 
 | Piece | State |
 |---|---|
