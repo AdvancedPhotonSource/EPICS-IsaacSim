@@ -19,9 +19,19 @@ controls-safety question, not a software one.
 
 ## Install
 
+From a release (no checkout needed — works on Linux, macOS and Windows):
+
 ```bash
-pip install -e .              # the adapter: caproto only, Python >= 3.9
-pip install -e '.[bluesky]'   # + ophyd, bluesky, the interactive console
+REL=https://github.com/AdvancedPhotonSource/EPICS-IsaacSim/releases/download/v0.1.0
+pip install "$REL/isaac_epics-0.1.0-py3-none-any.whl"            # caproto only, Python >= 3.9
+pip install "isaac-epics[bluesky] @ $REL/isaac_epics-0.1.0-py3-none-any.whl"  # + ophyd, bluesky, console
+```
+
+From a checkout, to develop on it:
+
+```bash
+pip install -e .
+pip install -e '.[bluesky]'
 ```
 
 Python ≥3.9 so it runs on the APS hosts' stock interpreter. Nothing is
