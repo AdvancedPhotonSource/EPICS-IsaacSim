@@ -19,19 +19,22 @@ controls-safety question, not a software one.
 
 ## Install
 
-From a release (no checkout needed — works on Linux, macOS and Windows):
+From a release, no checkout needed. These lines work as written in bash, zsh
+and PowerShell:
 
 ```bash
-REL=https://github.com/AdvancedPhotonSource/EPICS-IsaacSim/releases/download/v0.1.0
-pip install "$REL/isaac_epics-0.1.0-py3-none-any.whl"            # caproto only, Python >= 3.9
-pip install "isaac-epics[bluesky] @ $REL/isaac_epics-0.1.0-py3-none-any.whl"  # + ophyd, bluesky, console
+# the adapter: caproto only, Python >= 3.9
+pip install https://github.com/AdvancedPhotonSource/EPICS-IsaacSim/releases/download/v0.1.0/isaac_epics-0.1.0-py3-none-any.whl
+
+# + ophyd, bluesky, the interactive console
+pip install "isaac-epics[bluesky] @ https://github.com/AdvancedPhotonSource/EPICS-IsaacSim/releases/download/v0.1.0/isaac_epics-0.1.0-py3-none-any.whl"
 ```
 
 From a checkout, to develop on it:
 
 ```bash
 pip install -e .
-pip install -e '.[bluesky]'
+pip install -e ".[bluesky]"
 ```
 
 Python ≥3.9 so it runs on the APS hosts' stock interpreter. Nothing is
@@ -44,6 +47,25 @@ isaac-epics-tick --install /path/to/your/standalone/script/dir
 
 Re-run it after upgrading rather than keeping a copy — the emitted file always
 matches the adapter that emitted it.
+
+## Windows
+
+The adapter is pure Python with no POSIX-only dependencies, so it runs beside
+a native Isaac Sim install — no container, no SSH. Commands below are bash and
+zsh; in PowerShell substitute:
+
+| Instead of | Use |
+|---|---|
+| `export VAR=value` | `$env:VAR = "value"` |
+| `curl -s http://…/state` | `Invoke-RestMethod http://…/state` — `curl` is an alias for `Invoke-WebRequest` in Windows PowerShell and rejects `-s` |
+| `.venv/bin/python` | `.venv\Scripts\python.exe` |
+
+Isaac Sim's standalone launcher is `python.bat` in your install directory, not
+the container's `/isaac-sim/python.sh`.
+
+Untested: the adapter has not been run end to end on Windows. Nothing in it is
+platform-specific, but Channel Access UDP search is the part to watch — tell us
+how it goes.
 
 ## Quick start — no EPICS, no GPU, no Isaac Sim
 
