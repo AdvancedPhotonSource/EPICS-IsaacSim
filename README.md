@@ -25,9 +25,15 @@ pip install -e '.[bluesky]'   # + ophyd, bluesky, the interactive console
 ```
 
 Python ≥3.9 so it runs on the APS hosts' stock interpreter. Nothing is
-installed into Isaac Sim: the simulator side is one stdlib-only file,
-[`isaacsim_client/epics_tick.py`](isaacsim_client/epics_tick.py), copied next
-to your standalone script.
+installed into Isaac Sim: the simulator side is one stdlib-only file, which
+ships with the adapter and is written out next to your standalone script by
+
+```bash
+isaac-epics-tick --install /path/to/your/standalone/script/dir
+```
+
+Re-run it after upgrading rather than keeping a copy — the emitted file always
+matches the adapter that emitted it.
 
 ## Quick start — no EPICS, no GPU, no Isaac Sim
 

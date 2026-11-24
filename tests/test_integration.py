@@ -21,7 +21,8 @@ from isaac_epics.ioc import build_ioc
 from isaac_epics.plant import SharedPlant
 from isaac_epics.transport import TickServer
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "isaacsim_client"))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(__file__), "..", "src", "isaac_epics", "isaacsim_client"))
 from epics_tick import EpicsTickClient  # noqa: E402
 
 

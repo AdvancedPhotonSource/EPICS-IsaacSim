@@ -23,6 +23,7 @@ dev = ["pytest>=7", "pytest-asyncio>=0.21", "pytest-cov>=4", "ruff>=0.5"]
 isaac-epics-ioc = "isaac_epics.cli:main"
 isaac-epics-mirror = "isaac_epics.mirror:main"
 isaac-epics-console = "isaac_epics.console:main"
+isaac-epics-tick = "isaac_epics.tickfile:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -53,10 +54,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# isaacsim_client/ is copied into Isaac Sim's embedded interpreter as a single
+# The tick client is copied into Isaac Sim's embedded interpreter as a single
 # standalone file and must stay maximally portable. Explicit `object` bases and
-# percent-formatting are intentional conservatism, not oversights.
-"isaacsim_client/*" = ["UP004", "UP031"]
+# percent-formatting are intentional conservatism, not oversights. It ships
+# inside the package so that a pip install is enough to obtain it.
+"src/isaac_epics/isaacsim_client/*" = ["UP004", "UP031"]
 # Isaac Sim requires SimulationApp to be constructed before any other import,
 # so module-level imports cannot all sit at the top.
 # The bridge runs inside Isaac Sim's embedded interpreter and is kept

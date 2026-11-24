@@ -30,7 +30,8 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "isaacsim_client"))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(__file__), "..", "src", "isaac_epics", "isaacsim_client"))
 
 from epics_tick import EpicsTickClient  # noqa: E402
 

@@ -116,8 +116,12 @@ if args.livestream:
 # anyone who does not have that checkout mounted. A bring-your-own-asset
 # path that requires someone else's package is not one. It is imported
 # inside the branch that actually builds a mechanism.
+# The tick client ships inside the adapter package so that a pip install
+# obtains it; this repo-relative path is how the copy mounted into the
+# container is found. `isaac-epics-tick --install` is the other route.
 sys.path.insert(0, os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "isaacsim_client"))
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "src", "isaac_epics", "isaacsim_client"))
 from epics_tick import EpicsTickClient  # noqa: E402
 
 

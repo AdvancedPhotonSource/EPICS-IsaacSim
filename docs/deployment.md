@@ -38,9 +38,19 @@ python3 -m venv ~/venvs/isaac-epics
 ~/venvs/isaac-epics/bin/isaac-epics-ioc --list-pvs
 ```
 
-Nothing is installed into Isaac Sim. `isaacsim_client/epics_tick.py` is a single
-stdlib-only file — copy it next to your standalone script. There is no package,
-no pip step and no dependency for the simulator side, by design.
+Nothing is installed into Isaac Sim. The simulator side is a single stdlib-only
+file, `epics_tick.py`, which ships inside the adapter package:
+
+```bash
+isaac-epics-tick --install <dir>   # write it next to your standalone script
+isaac-epics-tick --path            # where the packaged copy lives
+isaac-epics-tick --print           # to stdout, for a Dockerfile or a pipe
+```
+
+There is no package, no pip step and no dependency for the simulator side, by
+design. The emitted file is byte-identical to the packaged one, so re-running
+`--install` is a safe no-op; an existing copy that differs is refused rather
+than overwritten, in case it was edited on purpose.
 
 ## Hosts
 
