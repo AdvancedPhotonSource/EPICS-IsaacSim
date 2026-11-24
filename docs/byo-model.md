@@ -219,6 +219,35 @@ isaac-epics-console -c my_stage.json
 Nothing after this point is model-specific. `%mov`, `%wa`, Bluesky plans,
 Phoebus screens and ophyd devices all work the same way.
 
+## The twin does not detect collisions
+
+A model rigged by this pipeline has **no colliders**. `rig_articulation.py`
+applies `CollisionAPI` only under `--collision`, and that flag is off by
+default. So a move that would crash the real instrument runs cleanly here:
+the joint passes straight through the other body, `.DMOV` is asserted, no
+alarm is raised, and the scan records a normal completion. **A move that
+succeeds against the twin is not evidence that it is safe against the
+hardware.**
+
+The default is deliberate, and flipping the flag does not fix it. PhysX
+approximates a collider as a **convex hull**, and the convex hull of a ring
+is a solid disc. On the Huber cradle the chi ring's hull swallows the phi box
+and the Z slide whole, so every link starts deeply interpenetrating and the
+solver locks the articulation rigid — which presents as dead drives rather
+than as a collision problem. Beamline mechanisms are rings, yokes, C-arms and
+frames; almost none of them are convex, so this is the normal case and not a
+quirk of this one asset.
+
+Doing it properly means authoring **convex decomposition or SDF colliders**
+per body and then verifying them, because a bad decomposition fails the same
+silent way a hull does. That is mechanism work, not control-path work, and it
+is outside what this project does: the adapter serves *motion*, and motion is
+what a clean run here demonstrates.
+
+If you need collision checking, treat it as a separate piece of work on the
+asset, and until it is done do not read a successful simulated move as
+clearance.
+
 ## What is automated, and what is not
 
 | Per-model task | Automated? |
@@ -230,6 +259,7 @@ Phoebus screens and ophyd devices all work the same way.
 | Joints nothing drives | **Detected** — warning |
 | Velocity and acceleration | **No** — a guess; they are your engineering choice |
 | `retry_deadband` | **No** — must be measured on the running model |
+| Collision detection | **No** — no colliders are authored; see above |
 
 The last two are not oversights. Velocity is a decision about how the
 instrument should behave, and the deadband is a property of mass and drive
