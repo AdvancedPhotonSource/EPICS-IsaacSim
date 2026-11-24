@@ -4,7 +4,7 @@ Notable changes to `isaac-epics`. Versions follow [semantic versioning](https://
 while the major version is 0 the wire protocol and configuration format may
 still change, and `PROTOCOL_VERSION` is what a running pair actually agrees on.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-24
 
 First release. Verified end to end on APS hardware (Sentosa, Isaac Sim 6.2.0,
 stock Python 3.9): a stock `bp.scan` drives a stock ophyd `EpicsMotor` over
